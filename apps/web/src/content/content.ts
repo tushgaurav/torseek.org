@@ -1,0 +1,69 @@
+export type MenuLink = {
+  label?: string
+  title?: string
+  href: string
+  description?: string
+}
+
+export type Menu = {
+  trigger: string
+  featured?: { href: string; title: string; description: string }
+  links: MenuLink[]
+}
+
+export const siteContent = {
+  structuredData: {
+    name: 'torseek',
+    description: 'Torrent Search Engine',
+    uri: 'https://torseek.org',
+  },
+  metadata: {
+    title: 'torseek.org',
+    description: 'Torrent Search Engine',
+    titleTemplate: '%s | torseek',
+  },
+  header: {
+    menus: [
+      {
+        trigger: 'Docs',
+        links: [
+          { label: 'Docs', href: '/docs' },
+          { label: 'How To', href: '/docs/installation' },
+          { label: 'Best Practices', href: '/docs' },
+        ],
+      },
+      {
+        trigger: 'Resources',
+        featured: {
+          href: '/docs',
+          title: 'Docs',
+          description: 'How this site works and how to use it.',
+        },
+        links: [
+          {
+            title: 'Best Practices',
+            href: '/docs',
+            description: 'Best practices for using this site.',
+          },
+          {
+            title: 'How To',
+            href: '/docs/installation',
+            description: 'How to install dependencies and structure your app.',
+          },
+          {
+            title: 'Typography',
+            href: '/docs/primitives/typography',
+            description: 'Styles for headings, paragraphs, lists...etc',
+          },
+        ],
+      },
+    ] as Menu[],
+  },
+  footer: {
+    links: [
+      { label: 'Privacy', href: '/privacy' },
+      { label: 'Terms', href: '/terms' },
+      { label: 'Contact', href: '/contact' },
+    ],
+  },
+}
