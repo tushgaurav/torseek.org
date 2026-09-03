@@ -34,10 +34,10 @@ If `JACKETT_API_KEY` is empty, `/api/search` serves captured results from `apps/
 
 ## Running Jackett
 
-Search results come from [Jackett](https://github.com/Jackett/Jackett), which proxies dozens of torrent indexers behind one API. The repo ships a `docker-compose.yml` that runs it next to the API.
+Search results come from [Jackett](https://github.com/Jackett/Jackett), which proxies dozens of torrent indexers behind one API. Any Jackett instance works; for local development the repo's `docker-compose.yml` can run one behind the `jackett` profile:
 
 ```bash
-docker compose up -d jackett
+docker compose --profile jackett up -d
 ```
 
 1. Open http://localhost:9117. Set an admin password (top right) on first visit.
@@ -60,17 +60,19 @@ Some indexers sit behind Cloudflare and need [FlareSolverr](https://github.com/F
 docker compose --profile flaresolverr up -d
 ```
 
-Then set **FlareSolverr API URL** to `http://flaresolverr:8191` under Jackett settings.
+Then set **FlareSolverr API URL** to `http://flaresolverr:8191` under Jackett settings (if Jackett is the one from the `jackett` profile; otherwise use whatever address your Jackett can reach it at).
 
 ### Production
 
-The `prod` profile builds the API into the same stack, where it reaches Jackett over the internal network as `http://jackett:9117`:
+The `prod` profile runs the API and a Caddy reverse proxy. Jackett is not part of it: run Jackett however you like on the host, and tell the API where it is via `JACKETT_URL` in the root `.env`. The default, `http://host.docker.internal:9117`, reaches a Jackett listening on the host's port 9117 from inside the container.
 
 ```bash
-JACKETT_API_KEY=... CORS_ORIGIN=https://your-site docker compose --profile prod up -d --build
+docker compose --profile prod up -d
 ```
 
-Jackett stays bound to loopback on the host; reach its admin UI over an SSH tunnel (`ssh -L 9117:127.0.0.1:9117 host`). The API container listens on `127.0.0.1:8000`; the public entry point is the `caddy` service, which terminates TLS for `API_DOMAIN` (e.g. `api.torseek.org`) with an automatically issued Let's Encrypt certificate and proxies to the API over the compose network. Its config lives in `deploy/Caddyfile`.
+One catch with the default: `host.docker.internal` resolves to the Docker bridge gateway (`172.17.0.1`), so Jackett must listen on an interface reachable from there. A Jackett bound only to `127.0.0.1:9117` is not; bind it to `0.0.0.0:9117` (with the AWS security group leaving 9117 closed, it stays unreachable from the internet) or to `172.17.0.1:9117` specifically. If Jackett runs as a container with a published port, `-p 9117:9117` already binds `0.0.0.0` and works as-is.
+
+Reach the Jackett admin UI over an SSH tunnel (`ssh -L 9117:127.0.0.1:9117 host`) rather than exposing it. The API container listens on `127.0.0.1:8000`; the public entry point is the `caddy` service, which terminates TLS for `API_DOMAIN` (e.g. `api.torseek.org`) with an automatically issued Let's Encrypt certificate and proxies to the API over the compose network. Its config lives in `deploy/Caddyfile`.
 
 To point a domain at the host:
 
@@ -92,11 +94,12 @@ One-time VM setup:
 
    ```
    JACKETT_API_KEY=...
+   JACKETT_URL=http://host.docker.internal:9117   # optional, this is the default
    API_DOMAIN=api.torseek.org
    CORS_ORIGIN=https://torseek.org
    ```
 
-   Compose reads this file automatically; CI appends `API_IMAGE=` to it on each deploy. Start Jackett once (`docker compose up -d jackett`) to generate the API key.
+   Compose reads this file automatically; CI appends `API_IMAGE=` to it on each deploy. The API key comes from your existing Jackett's dashboard.
 3. Generate a dedicated ssh key pair (`ssh-keygen -t ed25519 -f deploy_key -N ""`) and add the public half to the deploy user's `~/.ssh/authorized_keys`.
 
 Repository secrets (Settings → Secrets and variables → Actions, or scoped to the `production` environment):
