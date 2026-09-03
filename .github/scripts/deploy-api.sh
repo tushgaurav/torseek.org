@@ -21,8 +21,10 @@ fi
 echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
 trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
 
-docker compose --profile prod pull api
-docker compose --profile prod up -d --no-build api
+docker compose --profile prod pull api caddy
+docker compose --profile prod up -d --no-build api caddy
+# A changed Caddyfile does not recreate the container (bind mount), so reload.
+docker compose --profile prod exec -T caddy caddy reload --config /etc/caddy/Caddyfile
 
 # The image HEALTHCHECK runs every 30s, so allow a couple of intervals.
 status=starting

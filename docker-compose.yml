@@ -62,5 +62,29 @@ services:
     ports:
       - "${API_BIND:-127.0.0.1}:8000:8000"
 
+  # Production: TLS termination and reverse proxy for API_DOMAIN (set in the
+  # root .env). Ports 80/443 must be open in the instance's security group.
+  caddy:
+    image: caddy:2-alpine
+    container_name: torseek-caddy
+    restart: unless-stopped
+    profiles: ["prod"]
+    depends_on:
+      - api
+    environment:
+      # Falls back to localhost (self-signed) so the file still validates when
+      # the prod profile is inactive.
+      API_DOMAIN: ${API_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
 volumes:
   jackett-config:
+  caddy-data:
+  caddy-config:

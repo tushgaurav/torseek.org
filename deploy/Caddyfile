@@ -1,0 +1,6 @@
+# Served by the caddy service in docker-compose.yml. API_DOMAIN comes from the
+# root .env on the VM; Caddy obtains and renews the certificate on its own.
+{$API_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy api:8000
+}

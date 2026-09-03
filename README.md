@@ -70,11 +70,20 @@ The `prod` profile builds the API into the same stack, where it reaches Jackett 
 JACKETT_API_KEY=... CORS_ORIGIN=https://your-site docker compose --profile prod up -d --build
 ```
 
-Jackett stays bound to loopback on the host; reach its admin UI over an SSH tunnel (`ssh -L 9117:127.0.0.1:9117 host`). The API listens on `127.0.0.1:8000` by default (set `API_BIND=0.0.0.0` to expose it); put it and the built `apps/web` behind the same reverse proxy so `/api/*` is same-origin.
+Jackett stays bound to loopback on the host; reach its admin UI over an SSH tunnel (`ssh -L 9117:127.0.0.1:9117 host`). The API container listens on `127.0.0.1:8000`; the public entry point is the `caddy` service, which terminates TLS for `API_DOMAIN` (e.g. `api.torseek.org`) with an automatically issued Let's Encrypt certificate and proxies to the API over the compose network. Its config lives in `deploy/Caddyfile`.
+
+To point a domain at the host:
+
+1. Allocate an Elastic IP and associate it with the instance, so the address survives stop/start.
+2. Add a DNS `A` record for `api.torseek.org` (or your domain) to that IP.
+3. Open inbound TCP 80 and 443 (and UDP 443 for HTTP/3, optional) in the instance's security group. Port 80 is required for the ACME challenge even though traffic is redirected to HTTPS.
+4. Set `API_DOMAIN=api.torseek.org` and `CORS_ORIGIN=https://torseek.org` (the origin the frontend is served from) in the root `.env` on the VM.
+
+`curl https://api.torseek.org/api/health` should return 200 within a few seconds of Caddy starting.
 
 ### Deploying the API from CI
 
-`.github/workflows/deploy-api.yml` runs on every push to `main` that touches the API. It builds `apps/api/Dockerfile` on the runner, pushes it to GHCR as `ghcr.io/<owner>/<repo>/api:<sha>`, then ssh-es into the VM, copies `docker-compose.yml`, writes `API_IMAGE=<that tag>` into the VM's `.env`, and runs `docker compose --profile prod pull api && up -d --no-build api`. The run fails if the container does not report healthy within about two minutes. Trigger it by hand from the Actions tab (`workflow_dispatch`) for a redeploy without a code change.
+`.github/workflows/deploy-api.yml` runs on every push to `main` that touches the API. It builds `apps/api/Dockerfile` on the runner, pushes it to GHCR as `ghcr.io/<owner>/<repo>/api:<sha>`, then ssh-es into the VM, copies `docker-compose.yml` and `deploy/Caddyfile`, writes `API_IMAGE=<that tag>` into the VM's `.env`, and runs `docker compose --profile prod pull && up -d --no-build api caddy` followed by a Caddy config reload. The run fails if the API container does not report healthy within about two minutes. Trigger it by hand from the Actions tab (`workflow_dispatch`) for a redeploy without a code change.
 
 One-time VM setup:
 
@@ -83,7 +92,8 @@ One-time VM setup:
 
    ```
    JACKETT_API_KEY=...
-   CORS_ORIGIN=https://your-site
+   API_DOMAIN=api.torseek.org
+   CORS_ORIGIN=https://torseek.org
    ```
 
    Compose reads this file automatically; CI appends `API_IMAGE=` to it on each deploy. Start Jackett once (`docker compose up -d jackett`) to generate the API key.

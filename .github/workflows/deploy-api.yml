@@ -8,6 +8,7 @@ on:
       - "package.json"
       - "bun.lock"
       - "docker-compose.yml"
+      - "deploy/**"
       - ".github/workflows/deploy-api.yml"
       - ".github/scripts/deploy-api.sh"
   workflow_dispatch:
@@ -83,16 +84,19 @@ jobs:
         with:
           sparse-checkout: |
             docker-compose.yml
+            deploy/Caddyfile
             .github/scripts/deploy-api.sh
           sparse-checkout-cone-mode: false
 
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          # Strip CRs in case the key was pasted from a Windows editor; OpenSSH
+          # silently rejects a key file with CRLF line endings.
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" | tr -d '\r' > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           if [ -n "${{ secrets.DEPLOY_KNOWN_HOSTS }}" ]; then
-            printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+            printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" | tr -d '\r' > ~/.ssh/known_hosts
           else
             ssh-keyscan -H "$DEPLOY_HOST" > ~/.ssh/known_hosts 2>/dev/null
           fi
@@ -105,10 +109,11 @@ jobs:
             ConnectTimeout 15
           EOF
 
-      - name: Upload compose file
+      - name: Upload compose and proxy config
         run: |
-          ssh vm "mkdir -p '$DEPLOY_PATH'"
+          ssh vm "mkdir -p '$DEPLOY_PATH/deploy'"
           scp docker-compose.yml "vm:$DEPLOY_PATH/docker-compose.yml"
+          scp deploy/Caddyfile "vm:$DEPLOY_PATH/deploy/Caddyfile"
 
       - name: Pull and restart api
         env:
