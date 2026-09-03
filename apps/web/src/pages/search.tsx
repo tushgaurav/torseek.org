@@ -209,14 +209,16 @@ export default function SearchResults() {
           <NoSearchResults searchQuery={query} />
         )}
 
-        {!loading && !error && totalPages > 1 && (
-          <LogoPagination
-            className="mt-10 mb-4"
-            page={page}
-            totalPages={totalPages}
-            hrefFor={pageHref}
-            onNavigate={() => window.scrollTo({ top: 0 })}
-          />
+        {!loading && !error && data.results.length > 0 && (
+          <div className="mt-10 mb-4 flex flex-col items-center gap-8">
+            <LogoPagination
+              page={page}
+              totalPages={totalPages}
+              hrefFor={pageHref}
+              onNavigate={() => window.scrollTo({ top: 0 })}
+            />
+            <p className="text-sm text-muted-foreground">Results are not personalised</p>
+          </div>
         )}
       </div>
     </Page>
