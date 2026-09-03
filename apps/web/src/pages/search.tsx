@@ -1,19 +1,12 @@
-import { ChevronDown } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
 import { NoSearchResults } from '@/components/search/no-search-results'
 import { SearchBar } from '@/components/search/search-bar'
+import { CategoryMenu, IndexerMenu, SortMenu } from '@/components/search/search-filters'
 import SearchResultCard, { SearchResultCardSkeleton } from '@/components/search/search-result-card'
+import { SearchStatus } from '@/components/search/search-status'
 import { Page } from '@/components/shared/page'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import {
   Pagination,
   PaginationContent,
@@ -23,217 +16,265 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '@/components/ui/pagination'
-import { PAGE_SIZE, searchTorrents, type SearchResponse, type SearchResult } from '@/lib/api'
+import {
+  friendlyErrorMessage,
+  getIndexers,
+  isSortOption,
+  PAGE_SIZE,
+  searchTorrents,
+  type Category,
+  type IndexerInfo,
+  type SearchResponse,
+  type SortOption,
+} from '@/lib/api'
 
-type SortBy =
-  | 'none'
-  | 'seeders_asc'
-  | 'seeders_desc'
-  | 'peers_asc'
-  | 'peers_desc'
-  | 'date_uploaded_asc'
-  | 'date_uploaded_desc'
-  | 'size_asc'
-  | 'size_desc'
-
-const SORT_LABELS: Record<Exclude<SortBy, 'none'>, string> = {
-  size_asc: 'Size Ascending',
-  size_desc: 'Size Descending',
-  seeders_asc: 'Seeders Ascending',
-  seeders_desc: 'Seeders Descending',
-  peers_asc: 'Peers Ascending',
-  peers_desc: 'Peers Descending',
-  date_uploaded_asc: 'Date Uploaded Ascending',
-  date_uploaded_desc: 'Date Uploaded Descending',
+const EMPTY: SearchResponse = {
+  page: 1,
+  page_size: PAGE_SIZE,
+  total_results: 0,
+  results: [],
+  meta: { mode: 'jackett', cached: false, took_ms: 0, indexers: [] },
 }
-
-const SORT_OPTIONS: { value: Exclude<SortBy, 'none'>; label: string }[] = [
-  { value: 'size_asc', label: 'Size (Asc)' },
-  { value: 'size_desc', label: 'Size (Desc)' },
-  { value: 'seeders_asc', label: 'Seeders (Asc)' },
-  { value: 'seeders_desc', label: 'Seeders (Desc)' },
-  { value: 'peers_asc', label: 'Peers (Asc)' },
-  { value: 'peers_desc', label: 'Peers (Desc)' },
-  { value: 'date_uploaded_asc', label: 'Date Uploaded (Asc)' },
-  { value: 'date_uploaded_desc', label: 'Date Uploaded (Desc)' },
-]
-
-function sortResults(results: SearchResult[], sortBy: SortBy): SearchResult[] {
-  if (sortBy === 'none') return results
-  const [field, dir] = sortBy.split(/_(?=asc$|desc$)/) as [string, 'asc' | 'desc']
-  const sign = dir === 'asc' ? 1 : -1
-  const key = (r: SearchResult): number => {
-    switch (field) {
-      case 'seeders':
-        return Number(r.seeders)
-      case 'peers':
-        return Number(r.peers)
-      case 'size':
-        return Number(r.size)
-      case 'date_uploaded':
-        return new Date(r.pubDate).getTime()
-      default:
-        return 0
-    }
-  }
-  return [...results].sort((a, b) => sign * (key(a) - key(b)))
-}
-
-const EMPTY: SearchResponse = { page: 1, page_size: PAGE_SIZE, total_results: 0, results: [] }
 
 type RequestState = { key: string; data: SearchResponse; error: string | null }
+
+type IndexerCatalog = { indexers: IndexerInfo[]; categories: Category[]; loading: boolean }
+
+function parseCategory(raw: string | null): number | null {
+  if (!raw) return null
+  const n = Number(raw.split(',')[0])
+  return Number.isInteger(n) && n > 0 ? n : null
+}
+
+function parseIndexers(raw: string | null): string[] {
+  return raw ? raw.split(',').filter(Boolean) : []
+}
 
 export default function SearchResults() {
   const [searchParams, setSearchParams] = useSearchParams()
   const query = searchParams.get('q') ?? ''
   const page = Math.max(1, Number(searchParams.get('page')) || 1)
-  const requestKey = `${query}\u0000${page}`
+  const sortParam = searchParams.get('sort')
+  const sort: SortOption = isSortOption(sortParam) ? sortParam : 'relevance'
+  const category = parseCategory(searchParams.get('cat'))
+  const indexers = parseIndexers(searchParams.get('indexers'))
+  const indexersKey = indexers.join(',')
+
+  const requestKey = [query, page, sort, category ?? '', indexersKey].join('\u0000')
 
   const [request, setRequest] = useState<RequestState>({ key: '', data: EMPTY, error: null })
-  const [sortBy, setSortBy] = useState<SortBy>('none')
+  const [catalog, setCatalog] = useState<IndexerCatalog>({ indexers: [], categories: [], loading: true })
+
+  useEffect(() => {
+    let cancelled = false
+    getIndexers()
+      .then((res) => {
+        if (!cancelled) setCatalog({ indexers: res.indexers, categories: res.categories, loading: false })
+      })
+      .catch(() => {
+        if (!cancelled) setCatalog((c) => ({ ...c, loading: false }))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     document.title = query ? `${query} - torseek Search` : 'Search - torseek'
     if (!query) return
 
     let cancelled = false
-    searchTorrents(query, page)
+    searchTorrents({
+      query,
+      page,
+      sort,
+      categories: category === null ? [] : [category],
+      indexers: indexersKey ? indexersKey.split(',') : [],
+    })
       .then((data) => {
         if (!cancelled) setRequest({ key: requestKey, data, error: null })
       })
       .catch((err: unknown) => {
-        if (!cancelled) {
-          setRequest({
-            key: requestKey,
-            data: EMPTY,
-            error: err instanceof Error ? err.message : 'Search failed',
-          })
-        }
+        if (!cancelled) setRequest({ key: requestKey, data: EMPTY, error: friendlyErrorMessage(err) })
       })
 
     return () => {
       cancelled = true
     }
-  }, [query, page, requestKey])
+  }, [query, page, sort, category, indexersKey, requestKey])
 
   // A request is in flight whenever the settled state doesn't match the URL yet.
   const loading = Boolean(query) && request.key !== requestKey
   const data = query && request.key === requestKey ? request.data : EMPTY
   const error = request.key === requestKey ? request.error : null
 
-  const results = useMemo(() => sortResults(data.results, sortBy), [data.results, sortBy])
-
   const totalPages = Math.max(1, Math.ceil(data.total_results / PAGE_SIZE))
   const firstIndex = data.total_results === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
   const lastIndex = Math.min(page * PAGE_SIZE, data.total_results)
 
+  /** Rewrite the URL; any change other than the page number resets to page 1. */
+  const updateParams = (patch: { page?: number; sort?: SortOption; cat?: number | null; indexers?: string[] }) => {
+    const next = new URLSearchParams(searchParams)
+    if (patch.sort !== undefined) {
+      if (patch.sort === 'relevance') next.delete('sort')
+      else next.set('sort', patch.sort)
+    }
+    if (patch.cat !== undefined) {
+      if (patch.cat === null) next.delete('cat')
+      else next.set('cat', String(patch.cat))
+    }
+    if (patch.indexers !== undefined) {
+      if (patch.indexers.length === 0) next.delete('indexers')
+      else next.set('indexers', patch.indexers.join(','))
+    }
+    if (patch.page !== undefined && patch.page > 1) next.set('page', String(patch.page))
+    else next.delete('page')
+    setSearchParams(next)
+  }
+
   const goToPage = (p: number) => {
     if (p < 1 || p > totalPages || p === page) return
-    setSearchParams({ q: query, page: String(p) })
+    updateParams({ page: p })
     window.scrollTo({ top: 0 })
   }
 
+  const okIndexers = data.meta.indexers.filter((i) => i.status === 'ok').length
+
   return (
     <Page>
-      <div className="flex items-center justify-between gap-2 w-full">
-        <SearchBar key={query} initialValue={query} className="mt-4" />
-      </div>
+      <div className="w-full max-w-3xl">
+        <SearchBar key={query} initialValue={query} className="mt-2" />
 
-      <div className="mt-4 flex justify-end items-center gap-4">
-        {sortBy !== 'none' && (
-          <Badge className="p-2" variant="secondary">
-            {SORT_LABELS[sortBy]}
-          </Badge>
-        )}
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm">
-              Sort by <ChevronDown className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {SORT_OPTIONS.map((opt) => (
-              <DropdownMenuItem key={opt.value} onClick={() => setSortBy(opt.value)}>
-                {opt.label}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      <div className="flex flex-col gap-8 mt-4">
-        {loading ? (
-          <div className="flex flex-col gap-10">
-            <SearchResultCardSkeleton />
-            <SearchResultCardSkeleton />
-            <SearchResultCardSkeleton />
-          </div>
-        ) : (
-          <div className="flex flex-col gap-10">
-            {results.map((result) => (
-              <SearchResultCard key={result.guid} {...result} />
-            ))}
-            {results.length === 0 && <NoSearchResults searchQuery={query} />}
-          </div>
-        )}
-
-        {error && <p className="text-sm text-destructive">{error}</p>}
-
-        {!loading && data.total_results > 0 && (
-          <div className="flex justify-between max-w-xl mt-10 mb-8">
-            <p className="text-sm text-muted-foreground">
-              Page {page} of {totalPages}. Showing {firstIndex}-{lastIndex} of {data.total_results} results
-            </p>
-          </div>
-        )}
-
-        {!loading && totalPages > 1 && (
-          <Pagination className="max-w-xl m-0 justify-start">
-            <PaginationContent>
-              <PaginationItem>
-                <PaginationPrevious
-                  className="text-xs text-muted-foreground cursor-pointer"
-                  aria-disabled={page <= 1}
-                  onClick={() => goToPage(page - 1)}
-                />
-              </PaginationItem>
-              {pageWindow(page, totalPages).map((p, i) =>
-                p === 'ellipsis' ? (
-                  <PaginationItem key={`e-${i}`}>
-                    <PaginationEllipsis />
-                  </PaginationItem>
-                ) : (
-                  <PaginationItem key={p}>
-                    <PaginationLink isActive={p === page} className="cursor-pointer" onClick={() => goToPage(p)}>
-                      {p}
-                    </PaginationLink>
-                  </PaginationItem>
-                ),
+        <div className="mt-6 border-b pb-2">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+              {loading ? (
+                'Searching…'
+              ) : data.total_results > 0 ? (
+                <>
+                  <span className="font-medium text-foreground">{data.total_results.toLocaleString()}</span> results
+                  {query && (
+                    <>
+                      {' '}
+                      for <span className="text-foreground">“{query}”</span>
+                    </>
+                  )}
+                  <span className="hidden sm:inline">
+                    {okIndexers > 0 && (
+                      <>
+                        {' '}
+                        from {okIndexers} {okIndexers === 1 ? 'indexer' : 'indexers'}
+                      </>
+                    )}
+                    {' '}
+                    · showing {firstIndex}–{lastIndex}
+                  </span>
+                </>
+              ) : (
+                query &&
+                !error && (
+                  <>
+                    No results for <span className="text-foreground">“{query}”</span>
+                  </>
+                )
               )}
-              <PaginationItem>
-                <PaginationNext
-                  className="text-xs cursor-pointer"
-                  aria-disabled={page >= totalPages}
-                  onClick={() => goToPage(page + 1)}
-                />
-              </PaginationItem>
-            </PaginationContent>
-          </Pagination>
+            </p>
+
+            <div className="flex shrink-0 items-center gap-0.5">
+              <CategoryMenu categories={catalog.categories} value={category} onChange={(cat) => updateParams({ cat })} />
+              <IndexerMenu
+                indexers={catalog.indexers}
+                value={indexers}
+                loading={catalog.loading}
+                onChange={(ids) => updateParams({ indexers: ids })}
+              />
+              <SortMenu value={sort} onChange={(s) => updateParams({ sort: s })} />
+            </div>
+          </div>
+
+          {!loading && data.meta && <SearchStatus meta={data.meta} />}
+        </div>
+
+        {loading ? (
+          <ul className="mt-4 flex flex-col gap-3">
+            {Array.from({ length: 4 }, (_, i) => (
+              <SearchResultCardSkeleton key={i} />
+            ))}
+          </ul>
+        ) : error ? (
+          <div className="flex flex-col items-center gap-2 px-4 py-16 text-center">
+            <p className="text-sm font-medium text-destructive">{error}</p>
+            <p className="text-xs text-muted-foreground">Your query and filters are kept; retry once the backend is back.</p>
+          </div>
+        ) : data.results.length > 0 ? (
+          <ul className="mt-4 flex flex-col gap-3">
+            {data.results.map((result) => (
+              <SearchResultCard key={result.guid || `${result.jackettindexer.id}:${result.title}`} {...result} />
+            ))}
+          </ul>
+        ) : (
+          <NoSearchResults searchQuery={query} />
+        )}
+
+        {!loading && !error && totalPages > 1 && (
+          <div className="mt-6 flex flex-col-reverse items-center justify-between gap-3 border-t pt-4 sm:flex-row">
+            <p className="text-xs text-muted-foreground">
+              Page {page} of {totalPages}
+            </p>
+            <Pagination className="mx-0 w-auto">
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    className="cursor-pointer text-xs"
+                    aria-disabled={page <= 1}
+                    onClick={() => goToPage(page - 1)}
+                  />
+                </PaginationItem>
+                {pageWindow(page, totalPages).map((p, i) =>
+                  p === 'ellipsis' ? (
+                    <PaginationItem key={`e-${i}`}>
+                      <PaginationEllipsis />
+                    </PaginationItem>
+                  ) : (
+                    <PaginationItem key={p}>
+                      <PaginationLink
+                        isActive={p === page}
+                        size="icon-sm"
+                        className="cursor-pointer text-xs"
+                        onClick={() => goToPage(p)}
+                      >
+                        {p}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ),
+                )}
+                <PaginationItem>
+                  <PaginationNext
+                    className="cursor-pointer text-xs"
+                    aria-disabled={page >= totalPages}
+                    onClick={() => goToPage(page + 1)}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </div>
         )}
       </div>
     </Page>
   )
 }
 
-/** Current page plus two after it, then an ellipsis and the last page when far away. */
+/** First page, a window around the current page, and the last page, with ellipses between gaps. */
 function pageWindow(page: number, total: number): (number | 'ellipsis')[] {
-  const pages: (number | 'ellipsis')[] = []
-  for (let p = page; p <= Math.min(page + 2, total); p++) pages.push(p)
-  const last = pages[pages.length - 1]
-  if (typeof last === 'number' && last < total) {
-    if (last < total - 1) pages.push('ellipsis')
-    pages.push(total)
+  const wanted = new Set<number>([1, total, page - 1, page, page + 1])
+  const pages = [...wanted].filter((p) => p >= 1 && p <= total).sort((a, b) => a - b)
+
+  const out: (number | 'ellipsis')[] = []
+  for (let i = 0; i < pages.length; i++) {
+    const p = pages[i]!
+    const prev = pages[i - 1]
+    if (prev !== undefined && p - prev > 1) out.push('ellipsis')
+    out.push(p)
   }
-  return pages
+  return out
 }

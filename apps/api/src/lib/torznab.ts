@@ -1,5 +1,7 @@
 import { XMLParser } from 'fast-xml-parser'
 
+import { env } from '../env.ts'
+
 /**
  * Raw shape of a torznab <item> as produced by the parser below. Attributes
  * are prefixed with "@" and mixed text nodes use "#text", mirroring Python's
@@ -59,12 +61,37 @@ export function parseTorznab(xml: string): RawItem[] {
 }
 
 /** Indexer descriptions are untrusted HTML; keep only line breaks. */
-function sanitizeDescription(input: string): string {
+export function sanitizeDescription(input: string): string {
   return input
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/&lt;br\s*\/?&gt;/gi, '<br>')
+}
+
+/**
+ * Jackett proxies .torrent downloads and images through itself and embeds the
+ * API key in those URLs. Nothing matching this may reach the browser.
+ */
+export function isJackettUrl(value: string): boolean {
+  if (/[?&](jackett_)?apikey=/i.test(value)) return true
+  try {
+    return new URL(value).origin === new URL(env.JACKETT_URL).origin
+  } catch {
+    return false
+  }
+}
+
+function scrubAttrs(attrs: Record<string, string | string[]>): void {
+  for (const [name, value] of Object.entries(attrs)) {
+    if (typeof value === 'string') {
+      if (/^https?:/i.test(value) && isJackettUrl(value)) delete attrs[name]
+    } else {
+      const kept = value.filter((v) => !(/^https?:/i.test(v) && isJackettUrl(v)))
+      if (kept.length === 0) delete attrs[name]
+      else attrs[name] = kept
+    }
+  }
 }
 
 export function normalizeItem(item: RawItem): TorrentItem {
@@ -80,8 +107,15 @@ export function normalizeItem(item: RawItem): TorrentItem {
       attrs[name] = [existing, value]
     }
   }
+  scrubAttrs(attrs)
 
   const category = item.category === undefined ? [] : Array.isArray(item.category) ? item.category : [item.category]
+
+  const magnetCandidates = [item.link, attrs.magneturl, item.enclosure?.['@url'], item.guid]
+  const magnetLink = magnetCandidates.find((c): c is string => typeof c === 'string' && c.startsWith('magnet:')) ?? ''
+
+  const enclosure =
+    item.enclosure && item.enclosure['@url'] && isJackettUrl(item.enclosure['@url']) ? null : (item.enclosure ?? null)
 
   return {
     title: item.title ?? '',
@@ -90,15 +124,15 @@ export function normalizeItem(item: RawItem): TorrentItem {
     size: item.size ?? '0',
     files: item.files ?? null,
     description: sanitizeDescription(item.description ?? ''),
-    magnetLink: item.link ?? '',
+    magnetLink,
     category,
-    comments: item.comments ?? null,
+    comments: item.comments && !isJackettUrl(item.comments) ? item.comments : null,
     type: item.type ?? null,
     jackettindexer: {
       id: item.jackettindexer?.['@id'] ?? '',
       name: item.jackettindexer?.['#text'] ?? '',
     },
-    enclosure: item.enclosure ?? null,
+    enclosure,
     seeders: Number(attrs.seeders ?? 0) || 0,
     peers: Number(attrs.peers ?? 0) || 0,
     attrs,

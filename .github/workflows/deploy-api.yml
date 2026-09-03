@@ -1,0 +1,124 @@
+name: Deploy API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/api/**"
+      - "package.json"
+      - "bun.lock"
+      - "docker-compose.yml"
+      - ".github/workflows/deploy-api.yml"
+      - ".github/scripts/deploy-api.sh"
+  workflow_dispatch:
+
+# One deploy at a time; a queued run waits for the current one to finish
+# rather than racing it on the VM.
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image name
+        id: meta
+        run: |
+          # GHCR requires a lowercase repository path.
+          repo="${GITHUB_REPOSITORY,,}"
+          echo "image=ghcr.io/${repo}/api:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "latest=ghcr.io/${repo}/api:latest" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          # Change to linux/arm64 if the VM is a Graviton (t4g/m7g) instance.
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}
+            ${{ steps.meta.outputs.latest }}
+          # torseek.service is what deploy-api.sh filters on when pruning.
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            torseek.service=api
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+  deploy:
+    name: Deploy to VM
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE: ${{ needs.build.outputs.image }}
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/torseek' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            docker-compose.yml
+            .github/scripts/deploy-api.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          if [ -n "${{ secrets.DEPLOY_KNOWN_HOSTS }}" ]; then
+            printf '%s\n' "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -H "$DEPLOY_HOST" > ~/.ssh/known_hosts 2>/dev/null
+          fi
+          cat > ~/.ssh/config <<EOF
+          Host vm
+            HostName $DEPLOY_HOST
+            User $DEPLOY_USER
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            ConnectTimeout 15
+          EOF
+
+      - name: Upload compose file
+        run: |
+          ssh vm "mkdir -p '$DEPLOY_PATH'"
+          scp docker-compose.yml "vm:$DEPLOY_PATH/docker-compose.yml"
+
+      - name: Pull and restart api
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Prepend the variables to the script and stream it over stdin so
+          # the token never appears on the remote command line.
+          {
+            printf 'export IMAGE=%q DEPLOY_PATH=%q GHCR_USER=%q GHCR_TOKEN=%q\n' \
+              "$IMAGE" "$DEPLOY_PATH" "$GHCR_USER" "$GHCR_TOKEN"
+            cat .github/scripts/deploy-api.sh
+          } | ssh vm 'bash -s'

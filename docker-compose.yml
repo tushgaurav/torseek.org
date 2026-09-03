@@ -1,0 +1,66 @@
+services:
+  jackett:
+    image: lscr.io/linuxserver/jackett:latest
+    container_name: torseek-jackett
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+      AUTO_UPDATE: "true"
+    volumes:
+      - jackett-config:/config
+    # Loopback only: Jackett's API key grants full admin access, so the UI/API
+    # must never be reachable from outside this machine. The torseek API talks
+    # to it over localhost (dev) or the compose network (prod).
+    ports:
+      - "127.0.0.1:9117:9117"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9117/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Optional: solves Cloudflare challenges for indexers that need it.
+  # Start with `docker compose --profile flaresolverr up -d`, then set
+  # "FlareSolverr API URL" to http://flaresolverr:8191 in Jackett settings.
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: torseek-flaresolverr
+    restart: unless-stopped
+    profiles: ["flaresolverr"]
+    environment:
+      LOG_LEVEL: info
+      TZ: ${TZ:-UTC}
+
+  # Production: the API runs in the same stack and reaches Jackett over the
+  # internal network as http://jackett:9117. Start with
+  # `docker compose --profile prod up -d --build`.
+  api:
+    # `--build` locally tags the result torseek-api:local. CI writes API_IMAGE
+    # (the GHCR tag it pushed) into the VM's root .env and runs `up --no-build`.
+    image: ${API_IMAGE:-torseek-api:local}
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: torseek-api
+    restart: unless-stopped
+    profiles: ["prod"]
+    depends_on:
+      jackett:
+        condition: service_healthy
+    environment:
+      PORT: "8000"
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      JACKETT_URL: http://jackett:9117
+      # Read from the shell or a root .env; the API refuses to start without it.
+      JACKETT_API_KEY: ${JACKETT_API_KEY:-}
+      REQUIRE_JACKETT: "true"
+      JACKETT_TIMEOUT_MS: ${JACKETT_TIMEOUT_MS:-30000}
+      SEARCH_CACHE_TTL_MS: ${SEARCH_CACHE_TTL_MS:-600000}
+    ports:
+      - "${API_BIND:-127.0.0.1}:8000:8000"
+
+volumes:
+  jackett-config:

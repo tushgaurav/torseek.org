@@ -26,11 +26,79 @@ bun run dev
 ```
 
 - Web: http://localhost:5173
-- API: http://localhost:8000 (health check at `/api/health`, search at `/api/search?q=...&page=1`)
+- API: http://localhost:8000 (health check at `/api/health`, search at `/api/search?q=...&page=1&sort=seeders_desc&cat=2000&indexers=1337x,thepiratebay`)
 
 In development, Vite proxies `/api/*` to the Express server, so the frontend can call the API with relative URLs.
 
 If `JACKETT_API_KEY` is empty, `/api/search` serves captured results from `apps/api/fixtures/` so the UI can be developed without a running Jackett instance.
+
+## Running Jackett
+
+Search results come from [Jackett](https://github.com/Jackett/Jackett), which proxies dozens of torrent indexers behind one API. The repo ships a `docker-compose.yml` that runs it next to the API.
+
+```bash
+docker compose up -d jackett
+```
+
+1. Open http://localhost:9117. Set an admin password (top right) on first visit.
+2. Click **Add indexer**, pick the indexers you want (public ones need no credentials), and save.
+3. Copy the **API Key** shown at the top of the dashboard, or read it from the container:
+
+   ```bash
+   docker compose exec jackett cat /config/Jackett/ServerConfig.json
+   ```
+
+4. Put it in `apps/api/.env` as `JACKETT_API_KEY=...` and restart `bun run dev:api`.
+
+Jackett only generates the key on first boot; there is no environment variable to preset it. The port is bound to `127.0.0.1` on purpose: the API key grants full admin access, so Jackett must never be reachable from outside the machine. The torseek API is the only client.
+
+`GET /api/status` reports whether the API can reach Jackett and how many indexers are configured. `GET /api/indexers` lists them.
+
+Some indexers sit behind Cloudflare and need [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr). It is included as an opt-in profile:
+
+```bash
+docker compose --profile flaresolverr up -d
+```
+
+Then set **FlareSolverr API URL** to `http://flaresolverr:8191` under Jackett settings.
+
+### Production
+
+The `prod` profile builds the API into the same stack, where it reaches Jackett over the internal network as `http://jackett:9117`:
+
+```bash
+JACKETT_API_KEY=... CORS_ORIGIN=https://your-site docker compose --profile prod up -d --build
+```
+
+Jackett stays bound to loopback on the host; reach its admin UI over an SSH tunnel (`ssh -L 9117:127.0.0.1:9117 host`). The API listens on `127.0.0.1:8000` by default (set `API_BIND=0.0.0.0` to expose it); put it and the built `apps/web` behind the same reverse proxy so `/api/*` is same-origin.
+
+### Deploying the API from CI
+
+`.github/workflows/deploy-api.yml` runs on every push to `main` that touches the API. It builds `apps/api/Dockerfile` on the runner, pushes it to GHCR as `ghcr.io/<owner>/<repo>/api:<sha>`, then ssh-es into the VM, copies `docker-compose.yml`, writes `API_IMAGE=<that tag>` into the VM's `.env`, and runs `docker compose --profile prod pull api && up -d --no-build api`. The run fails if the container does not report healthy within about two minutes. Trigger it by hand from the Actions tab (`workflow_dispatch`) for a redeploy without a code change.
+
+One-time VM setup:
+
+1. Install Docker (with the compose plugin) and add the deploy user to the `docker` group.
+2. Create the deploy directory (default `/opt/torseek`) with a `.env` containing at least:
+
+   ```
+   JACKETT_API_KEY=...
+   CORS_ORIGIN=https://your-site
+   ```
+
+   Compose reads this file automatically; CI appends `API_IMAGE=` to it on each deploy. Start Jackett once (`docker compose up -d jackett`) to generate the API key.
+3. Generate a dedicated ssh key pair (`ssh-keygen -t ed25519 -f deploy_key -N ""`) and add the public half to the deploy user's `~/.ssh/authorized_keys`.
+
+Repository secrets (Settings → Secrets and variables → Actions, or scoped to the `production` environment):
+
+| Name                 | Value                                                        |
+| -------------------- | ------------------------------------------------------------ |
+| `DEPLOY_HOST`        | Public IP or hostname of the VM                              |
+| `DEPLOY_USER`        | The ssh user (must be in the `docker` group)                 |
+| `DEPLOY_SSH_KEY`     | Contents of the private `deploy_key`                         |
+| `DEPLOY_KNOWN_HOSTS` | Optional. Output of `ssh-keyscan -H <host>`; if unset, CI trusts the host key on first connect |
+
+Optional variable `DEPLOY_PATH` overrides the deploy directory. The image is pulled on the VM with the workflow's own `GITHUB_TOKEN`, so no registry credentials need to live on the box. If the VM is a Graviton instance, change `platforms` in the workflow to `linux/arm64`.
 
 ## Frontend
 

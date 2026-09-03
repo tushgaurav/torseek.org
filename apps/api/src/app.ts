@@ -3,7 +3,9 @@ import express from 'express'
 
 import { env } from './env.ts'
 import { healthRouter } from './routes/health.ts'
+import { indexersRouter } from './routes/indexers.ts'
 import { searchRouter } from './routes/search.ts'
+import { statusRouter } from './routes/status.ts'
 
 export function createApp() {
   const app = express()
@@ -12,6 +14,8 @@ export function createApp() {
   app.use(express.json())
 
   app.use('/api/health', healthRouter)
+  app.use('/api/status', statusRouter)
+  app.use('/api/indexers', indexersRouter)
   app.use('/api/search', searchRouter)
 
   app.use((_req, res) => {
