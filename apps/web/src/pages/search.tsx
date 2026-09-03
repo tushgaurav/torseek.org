@@ -1,21 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
+import { LogoPagination } from '@/components/search/logo-pagination'
 import { NoSearchResults } from '@/components/search/no-search-results'
 import { SearchBar } from '@/components/search/search-bar'
 import { CategoryMenu, IndexerMenu, SortMenu } from '@/components/search/search-filters'
 import SearchResultCard, { SearchResultCardSkeleton } from '@/components/search/search-result-card'
 import { SearchStatus } from '@/components/search/search-status'
 import { Page } from '@/components/shared/page'
-import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from '@/components/ui/pagination'
 import {
   friendlyErrorMessage,
   getIndexers,
@@ -132,10 +124,11 @@ export default function SearchResults() {
     setSearchParams(next)
   }
 
-  const goToPage = (p: number) => {
-    if (p < 1 || p > totalPages || p === page) return
-    updateParams({ page: p })
-    window.scrollTo({ top: 0 })
+  const pageHref = (p: number) => {
+    const next = new URLSearchParams(searchParams)
+    if (p > 1) next.set('page', String(p))
+    else next.delete('page')
+    return `?${next.toString()}`
   }
 
   const okIndexers = data.meta.indexers.filter((i) => i.status === 'ok').length
@@ -217,64 +210,15 @@ export default function SearchResults() {
         )}
 
         {!loading && !error && totalPages > 1 && (
-          <div className="mt-6 flex flex-col-reverse items-center justify-between gap-3 border-t pt-4 sm:flex-row">
-            <p className="text-xs text-muted-foreground">
-              Page {page} of {totalPages}
-            </p>
-            <Pagination className="mx-0 w-auto">
-              <PaginationContent>
-                <PaginationItem>
-                  <PaginationPrevious
-                    className="cursor-pointer text-xs"
-                    aria-disabled={page <= 1}
-                    onClick={() => goToPage(page - 1)}
-                  />
-                </PaginationItem>
-                {pageWindow(page, totalPages).map((p, i) =>
-                  p === 'ellipsis' ? (
-                    <PaginationItem key={`e-${i}`}>
-                      <PaginationEllipsis />
-                    </PaginationItem>
-                  ) : (
-                    <PaginationItem key={p}>
-                      <PaginationLink
-                        isActive={p === page}
-                        size="icon-sm"
-                        className="cursor-pointer text-xs"
-                        onClick={() => goToPage(p)}
-                      >
-                        {p}
-                      </PaginationLink>
-                    </PaginationItem>
-                  ),
-                )}
-                <PaginationItem>
-                  <PaginationNext
-                    className="cursor-pointer text-xs"
-                    aria-disabled={page >= totalPages}
-                    onClick={() => goToPage(page + 1)}
-                  />
-                </PaginationItem>
-              </PaginationContent>
-            </Pagination>
-          </div>
+          <LogoPagination
+            className="mt-10 mb-4"
+            page={page}
+            totalPages={totalPages}
+            hrefFor={pageHref}
+            onNavigate={() => window.scrollTo({ top: 0 })}
+          />
         )}
       </div>
     </Page>
   )
-}
-
-/** First page, a window around the current page, and the last page, with ellipses between gaps. */
-function pageWindow(page: number, total: number): (number | 'ellipsis')[] {
-  const wanted = new Set<number>([1, total, page - 1, page, page + 1])
-  const pages = [...wanted].filter((p) => p >= 1 && p <= total).sort((a, b) => a - b)
-
-  const out: (number | 'ellipsis')[] = []
-  for (let i = 0; i < pages.length; i++) {
-    const p = pages[i]!
-    const prev = pages[i - 1]
-    if (prev !== undefined && p - prev > 1) out.push('ellipsis')
-    out.push(p)
-  }
-  return out
 }
