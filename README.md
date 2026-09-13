@@ -1,5 +1,7 @@
 # torseek
 
+![Screenshot](./docs/screenshot.png)
+
 A rewrite of [torseek](https://www.tushgaurav.com/projects/torseek), a torrent search client backed by Jackett, this time as a Node/TypeScript monorepo.
 
 ## Structure
