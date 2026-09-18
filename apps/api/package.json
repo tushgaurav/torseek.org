@@ -12,7 +12,8 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^5.1.0",
-    "fast-xml-parser": "^5.11.1"
+    "fast-xml-parser": "^5.11.1",
+    "posthog-node": "^5.52.2"
   },
   "devDependencies": {
     "@types/bun": "latest",

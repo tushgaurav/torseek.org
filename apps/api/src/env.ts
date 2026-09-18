@@ -40,6 +40,8 @@ if (JACKETT_API_KEY) {
 export const env = {
   PORT: integer('PORT', 8000),
   CORS_ORIGIN: optional('CORS_ORIGIN', 'http://localhost:5173'),
+  POSTHOG_PROJECT_TOKEN: optional('POSTHOG_PROJECT_TOKEN', '').trim(),
+  POSTHOG_HOST: optional('POSTHOG_HOST', 'https://eu.i.posthog.com'),
   JACKETT_URL,
   JACKETT_API_KEY,
   /** Upper bound for a single round-trip to Jackett. Aggregate searches wait for the slowest indexer. */

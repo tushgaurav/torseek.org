@@ -1,10 +1,6 @@
 {
   "name": "torseek",
   "private": true,
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
   "scripts": {
     "dev": "bun run --filter '*' dev",
     "dev:api": "bun run --filter @torseek/api dev",
@@ -12,5 +8,9 @@
     "build": "bun run --filter '*' build",
     "typecheck": "bun run --filter '*' typecheck",
     "lint": "bun run --filter '*' lint"
-  }
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
 }

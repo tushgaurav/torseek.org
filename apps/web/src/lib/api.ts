@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 export type SearchResult = {
   title: string
   guid: string
@@ -120,10 +122,23 @@ export function friendlyErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : 'Search failed'
 }
 
+function analyticsHeaders(): HeadersInit {
+  try {
+    const distinctId = posthog.get_distinct_id()
+    const sessionId = posthog.get_session_id()
+    const headers: Record<string, string> = {}
+    if (distinctId) headers['X-POSTHOG-DISTINCT-ID'] = distinctId
+    if (sessionId) headers['X-POSTHOG-SESSION-ID'] = sessionId
+    return headers
+  } catch {
+    return {}
+  }
+}
+
 async function request<T>(path: string): Promise<T> {
   let res: Response
   try {
-    res = await fetch(path)
+    res = await fetch(path, { headers: analyticsHeaders() })
   } catch (err) {
     throw new ApiError('NETWORK', err instanceof Error ? err.message : 'Network error', 0)
   }

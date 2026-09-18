@@ -2,6 +2,7 @@ import { Router } from 'express'
 
 import { isTopLevelCategory } from '../lib/categories.ts'
 import { JackettError } from '../lib/jackett.ts'
+import { capture, distinctIdFrom, posthog, sessionIdFrom } from '../lib/posthog.ts'
 import { runSearch, searchMode } from '../lib/search.ts'
 import { isSortOption, sortItems, type SortOption } from '../lib/sort.ts'
 
@@ -73,12 +74,38 @@ searchRouter.get('/', async (req, res) => {
     return
   }
   const { q, page, sort, categories, indexers } = parsed
+  const distinctId = distinctIdFrom(req.headers)
+  const sessionId = sessionIdFrom(req.headers)
 
   const started = performance.now()
   try {
     const { outcome, cached } = await runSearch({ query: q, categories, indexers })
     const sorted = sortItems(outcome.items, sort)
     const start = (page - 1) * PAGE_SIZE
+    const tookMs = Math.round(performance.now() - started)
+    // Pagination and re-sorts of a cached set still hit this route; only page 1
+    // is a new search (filter/sort changes already reset the page).
+    if (page === 1) {
+      capture(
+        'search_performed',
+        distinctId,
+        {
+          query: q,
+          query_normalized: q.toLowerCase(),
+          sort,
+          category: categories[0] ?? null,
+          indexer_count: indexers.length,
+          indexers,
+          result_count: sorted.length,
+          zero_results: sorted.length === 0,
+          cached,
+          took_ms: tookMs,
+          search_mode: searchMode,
+          ok_indexers: outcome.indexers.filter((i) => i.status === 'ok').length,
+        },
+        sessionId,
+      )
+    }
     res.json({
       page,
       page_size: PAGE_SIZE,
@@ -87,7 +114,7 @@ searchRouter.get('/', async (req, res) => {
       meta: {
         mode: searchMode,
         cached,
-        took_ms: Math.round(performance.now() - started),
+        took_ms: tookMs,
         indexers: outcome.indexers,
       },
     })
@@ -95,6 +122,20 @@ searchRouter.get('/', async (req, res) => {
     const { status, body } = errorResponse(err)
     const cause = err instanceof Error ? (err.cause instanceof Error ? `${err.message}: ${err.cause.message}` : err.message) : String(err)
     console.error(`[api] search "${q}" failed (${body.code}): ${cause}`)
+    capture(
+      'search_failed',
+      distinctId,
+      {
+        query: q,
+        query_normalized: q.toLowerCase(),
+        sort,
+        category: categories[0] ?? null,
+        code: body.code,
+        search_mode: searchMode,
+      },
+      sessionId,
+    )
+    posthog?.captureException(err, distinctId)
     res.status(status).json(body)
   }
 })

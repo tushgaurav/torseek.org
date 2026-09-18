@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp, Calendar, Download, HardDrive, Magnet, User } from 'lucide-react'
 import { useMemo } from 'react'
 import { toast } from 'sonner'
+import { usePostHog } from '@posthog/react'
 
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -19,6 +20,7 @@ export default function SearchResultCard({
   peers,
   attrs,
 }: SearchResult) {
+  const posthog = usePostHog()
   const uploaded = new Date(pubDate)
   const { uploader, text } = useMemo(() => parseDescription(description, title), [description, title])
   const infohash = typeof attrs.infohash === 'string' ? attrs.infohash : null
@@ -26,8 +28,19 @@ export default function SearchResultCard({
   // which the API withholds because those URLs carry its key.
   const hasMagnet = magnetLink.startsWith('magnet:')
 
+  const track = (event: string, extra?: Record<string, unknown>) => {
+    posthog.capture(event, {
+      indexer: jackettindexer.id,
+      indexer_name: jackettindexer.name,
+      seeders,
+      peers,
+      ...extra,
+    })
+  }
+
   const copyMagnet = async () => {
     await navigator.clipboard.writeText(magnetLink)
+    track('magnet_copied')
     toast.success('Magnet link copied to clipboard.')
   }
 
@@ -39,6 +52,7 @@ export default function SearchResultCard({
             <a
               href={magnetLink}
               title={title}
+              onClick={() => track('result_opened')}
               className="line-clamp-2 text-base font-medium leading-snug transition-colors hover:text-primary"
             >
               {title}
@@ -95,7 +109,12 @@ export default function SearchResultCard({
           )}
           {infohash && (
             <Button asChild variant="outline" size="sm" className="active:scale-[0.97]">
-              <a href={`https://webtor.io/${infohash.toLowerCase()}`} target="_blank" rel="noopener noreferrer">
+              <a
+                href={`https://webtor.io/${infohash.toLowerCase()}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => track('download_clicked', { destination: 'webtor' })}
+              >
                 <Download />
                 Download
               </a>
