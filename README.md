@@ -30,7 +30,7 @@ bun run dev
 - Web: http://localhost:5173
 - API: http://localhost:8000 (health check at `/api/health`, search at `/api/search?q=...&page=1&sort=seeders_desc&cat=2000&indexers=1337x,thepiratebay`)
 
-In development, Vite proxies `/api/*` to the Express server, so the frontend can call the API with relative URLs.
+In development, Vite proxies `/api/*` to the Express server, so the frontend can call the API with relative URLs. In production there is no proxy: the bundle is built with `VITE_API_URL` set to the API's public origin (e.g. `https://api.torseek.org`) and calls it cross-origin, which is why the API's `CORS_ORIGIN` must be the origin the site is served from.
 
 If `JACKETT_API_KEY` is empty, `/api/search` serves captured results from `apps/api/fixtures/` so the UI can be developed without a running Jackett instance.
 
@@ -134,7 +134,7 @@ src/
 
 ### Deploying the web app from CI
 
-`.github/workflows/deploy-web.yml` runs on every push to `main` that touches `apps/web`. It installs with Bun, runs `oxlint` and `tsc -b`, builds with Vite, then authenticates to AWS with a deploy IAM user's access key stored as GitHub secrets, uploads `apps/web/dist` to an S3 bucket and invalidates the CloudFront distribution in front of it. Hashed files under `assets/` are stored with `Cache-Control: public, max-age=31536000, immutable`, `index.html` with `no-cache`, and the un-hashed files from `public/` with a five-minute TTL. New assets are uploaded before `index.html` and stale ones pruned after it, so no page ever references a chunk that is missing from the bucket. Trigger it by hand from the Actions tab (`workflow_dispatch`); a manual run from a branch other than `main` builds but does not deploy.
+`.github/workflows/deploy-web.yml` runs on every push to `main` that touches `apps/web`. It installs with Bun, runs `oxlint` and `tsc -b`, builds with Vite (the build fails if `VITE_API_URL` is unset, since the bundle would otherwise call `/api/*` on CloudFront), then authenticates to AWS with a deploy IAM user's access key stored as GitHub secrets, uploads `apps/web/dist` to an S3 bucket and invalidates the CloudFront distribution in front of it. Hashed files under `assets/` are stored with `Cache-Control: public, max-age=31536000, immutable`, `index.html` with `no-cache`, and the un-hashed files from `public/` with a five-minute TTL. New assets are uploaded before `index.html` and stale ones pruned after it, so no page ever references a chunk that is missing from the bucket. Trigger it by hand from the Actions tab (`workflow_dispatch`); a manual run from a branch other than `main` builds but does not deploy.
 
 One-time AWS setup:
 
@@ -175,6 +175,7 @@ Repository variables and secrets (Settings → Secrets and variables → Actions
 | `AWS_REGION`                 | variable | Region of the bucket, e.g. `eu-west-1`                                                  |
 | `S3_BUCKET`                  | variable | Bucket name                                                                             |
 | `CLOUDFRONT_DISTRIBUTION_ID` | variable | e.g. `E1ABCDEF2GHIJK`                                                                   |
+| `VITE_API_URL`               | variable | Public origin of the API, e.g. `https://api.torseek.org`, no trailing slash             |
 | `VITE_POSTHOG_PROJECT_TOKEN` | variable | Optional. PostHog project token, baked into the bundle; PostHog stays off when unset    |
 | `VITE_POSTHOG_HOST`          | variable | Optional. Defaults to `https://eu.i.posthog.com`                                        |
 
@@ -195,4 +196,4 @@ Or target a single workspace: `bun run --filter @torseek/api dev`.
 
 ## Environment
 
-See `apps/api/.env.example`. Bun loads `.env` files automatically; no `dotenv` needed.
+See `apps/api/.env.example` and `apps/web/.env.example`. Bun loads the API's `.env` automatically; no `dotenv` needed. Vite does the same for `apps/web/.env` and inlines the `VITE_*` values into the bundle at build time, so nothing in there can be secret.

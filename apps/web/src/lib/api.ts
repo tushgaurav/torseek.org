@@ -135,10 +135,16 @@ function analyticsHeaders(): HeadersInit {
   }
 }
 
+// Origin the API is served from, e.g. https://api.torseek.org in production.
+// Vite inlines it at build time. Empty in development so requests stay
+// same-origin and reach the Express server through the Vite proxy
+// (see vite.config.ts).
+const API_BASE_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
+
 async function request<T>(path: string): Promise<T> {
   let res: Response
   try {
-    res = await fetch(path, { headers: analyticsHeaders() })
+    res = await fetch(`${API_BASE_URL}${path}`, { headers: analyticsHeaders() })
   } catch (err) {
     throw new ApiError('NETWORK', err instanceof Error ? err.message : 'Network error', 0)
   }
