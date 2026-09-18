@@ -1,3 +1,5 @@
+import { articles, articlePath } from '@/content/articles'
+
 export type MenuLink = {
   label?: string
   title?: string
@@ -10,6 +12,8 @@ export type Menu = {
   featured?: { href: string; title: string; description: string }
   links: MenuLink[]
 }
+
+const featuredArticles = articles.filter((article) => article.featured)
 
 export const siteContent = {
   structuredData: {
@@ -25,35 +29,37 @@ export const siteContent = {
   header: {
     menus: [
       {
-        trigger: 'Docs',
+        trigger: 'Articles',
         links: [
-          { label: 'Docs', href: '/docs' },
-          { label: 'How To', href: '/docs/installation' },
-          { label: 'Best Practices', href: '/docs' },
+          { label: 'All articles', href: '/articles' },
+          ...featuredArticles.slice(0, 5).map((article) => ({
+            label: article.navLabel,
+            href: articlePath(article.slug),
+          })),
         ],
       },
       {
         trigger: 'Resources',
         featured: {
-          href: '/docs',
-          title: 'Docs',
-          description: 'How this site works and how to use it.',
+          href: '/articles',
+          title: 'Articles',
+          description: 'Guides on BitTorrent, searching, clients, and staying safe.',
         },
         links: [
           {
-            title: 'Best Practices',
-            href: '/docs',
-            description: 'Best practices for using this site.',
+            title: 'How to search',
+            href: articlePath('how-to-search-on-torseek'),
+            description: 'Queries, filters, and how to read a result row.',
           },
           {
-            title: 'How To',
-            href: '/docs/installation',
-            description: 'How to install dependencies and structure your app.',
+            title: 'Spotting fakes',
+            href: articlePath('spotting-fake-torrents'),
+            description: 'Wrong sizes, extra executables, and other tells.',
           },
           {
-            title: 'Typography',
-            href: '/docs/primitives/typography',
-            description: 'Styles for headings, paragraphs, lists...etc',
+            title: 'Legal torrents',
+            href: articlePath('legal-torrents'),
+            description: 'Linux ISOs, Creative Commons, and open data dumps.',
           },
         ],
       },
@@ -61,6 +67,7 @@ export const siteContent = {
   },
   footer: {
     links: [
+      { label: 'Articles', href: '/articles' },
       { label: 'Privacy', href: '/privacy' },
       { label: 'Terms', href: '/terms' },
       { label: 'Contact', href: '/contact' },

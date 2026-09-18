@@ -51,7 +51,7 @@ export default function NavBar() {
                         ))}
                       </ul>
                     ) : (
-                      <ul className="grid w-[200px] gap-1">
+                      <ul className="grid w-[240px] gap-1">
                         {menu.links.map((link) => (
                           <li key={link.href + link.label}>
                             <NavigationMenuLink asChild>
