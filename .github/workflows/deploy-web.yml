@@ -1,0 +1,157 @@
+name: Deploy Web
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "package.json"
+      - "bun.lock"
+      - ".github/workflows/deploy-web.yml"
+  workflow_dispatch:
+
+# One deploy at a time; a queued run waits for the current one to finish
+# rather than racing it on the bucket.
+concurrency:
+  group: deploy-web
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Lint, typecheck and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Tracks the same major as oven/bun:1 in apps/api/Dockerfile.
+          bun-version: 1.x
+
+      - name: Cache Bun packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Lint
+        working-directory: apps/web
+        run: bun run lint
+
+      - name: Typecheck
+        working-directory: apps/web
+        run: bun run typecheck
+
+      - name: Build
+        working-directory: apps/web
+        # Vite inlines VITE_* at build time; both end up in the public bundle,
+        # so they are repository variables, not secrets. An empty token
+        # disables PostHog, same as running without apps/web/.env.
+        env:
+          VITE_POSTHOG_PROJECT_TOKEN: ${{ vars.VITE_POSTHOG_PROJECT_TOKEN }}
+          VITE_POSTHOG_HOST: ${{ vars.VITE_POSTHOG_HOST || 'https://eu.i.posthog.com' }}
+        run: bun run build
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: web-dist
+          path: apps/web/dist
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    name: Deploy to S3 and CloudFront
+    needs: build
+    # A workflow_dispatch from another branch still builds but never deploys.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      S3_BUCKET: ${{ vars.S3_BUCKET }}
+      CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+    steps:
+      - name: Check configuration
+        env:
+          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+        run: |
+          missing=0
+          for name in AWS_ROLE_ARN AWS_REGION S3_BUCKET CLOUDFRONT_DISTRIBUTION_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not set. See README, 'Deploying the web app from CI'." >&2
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: web-dist
+          path: dist
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: github-deploy-web-${{ github.run_id }}
+
+      # Vite content-hashes everything under assets/, so those files can be
+      # cached forever and a same-named file is always the same file
+      # (--size-only skips re-uploading them). They go up before index.html so
+      # no client ever loads a page that references a chunk that isn't in the
+      # bucket yet; stale chunks are pruned afterwards.
+      - name: Upload hashed assets
+        run: |
+          aws s3 sync dist/assets "s3://$S3_BUCKET/assets" \
+            --size-only \
+            --cache-control "public, max-age=31536000, immutable"
+
+      # index.html and the un-hashed files copied from public/ (favicon,
+      # logo, og image) change in place, so they must be revalidated. They are
+      # always re-uploaded with cp: sync skips a file whose size did not
+      # change, which would leave old metadata behind. The final sync only
+      # deletes root files dropped from the build; assets/ is excluded.
+      - name: Upload entry files
+        run: |
+          aws s3 cp dist "s3://$S3_BUCKET" --recursive \
+            --exclude "assets/*" \
+            --exclude "index.html" \
+            --cache-control "public, max-age=300, must-revalidate"
+          aws s3 cp dist/index.html "s3://$S3_BUCKET/index.html" \
+            --cache-control "no-cache"
+          aws s3 sync dist "s3://$S3_BUCKET" \
+            --exclude "assets/*" \
+            --size-only \
+            --delete
+
+      - name: Prune stale assets
+        run: |
+          aws s3 sync dist/assets "s3://$S3_BUCKET/assets" \
+            --size-only \
+            --delete \
+            --cache-control "public, max-age=31536000, immutable"
+
+      - name: Invalidate CloudFront cache
+        # A wildcard counts as one path against the free monthly quota, and
+        # re-fetching the immutable assets once per edge is cheap.
+        run: |
+          id=$(aws cloudfront create-invalidation \
+            --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" \
+            --paths "/*" \
+            --query 'Invalidation.Id' \
+            --output text)
+          echo "Created invalidation $id, waiting for it to complete"
+          aws cloudfront wait invalidation-completed \
+            --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" \
+            --id "$id"
+          echo "Deployed ${GITHUB_SHA} to s3://$S3_BUCKET (distribution $CLOUDFRONT_DISTRIBUTION_ID)"
