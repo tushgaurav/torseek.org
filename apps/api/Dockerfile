@@ -14,6 +14,12 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/package.json ./
 COPY apps/api ./apps/api
+# Bun's isolated linker (the default for workspaces) installs a package's
+# direct dependencies into its own node_modules as relative symlinks into the
+# root node_modules/.bun store, so that directory has to ship too. It comes
+# after the source copy because .dockerignore drops node_modules from the
+# build context, and would otherwise be missing from the image.
+COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
 WORKDIR /app/apps/api
 USER bun
 EXPOSE 8000
