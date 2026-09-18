@@ -43,23 +43,23 @@ export const siteContent = {
         featured: {
           href: '/articles',
           title: 'Articles',
-          description: 'Guides on BitTorrent, searching, clients, and staying safe.',
+          description: 'Short guides on how BitTorrent works, how to search here, and how to avoid bad files.',
         },
         links: [
           {
             title: 'How to search',
             href: articlePath('how-to-search-on-torseek'),
-            description: 'Queries, filters, and how to read a result row.',
+            description: 'Writing a query, using the filters, and reading a result.',
           },
           {
             title: 'Spotting fakes',
             href: articlePath('spotting-fake-torrents'),
-            description: 'Wrong sizes, extra executables, and other tells.',
+            description: 'What to check on the listing and in the file list.',
           },
           {
             title: 'Legal torrents',
             href: articlePath('legal-torrents'),
-            description: 'Linux ISOs, Creative Commons, and open data dumps.',
+            description: 'Linux ISOs, Internet Archive, Creative Commons releases.',
           },
         ],
       },
