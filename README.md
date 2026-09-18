@@ -134,36 +134,12 @@ src/
 
 ### Deploying the web app from CI
 
-`.github/workflows/deploy-web.yml` runs on every push to `main` that touches `apps/web`. It installs with Bun, runs `oxlint` and `tsc -b`, builds with Vite, then assumes an AWS role through GitHub's OIDC provider (no long-lived access keys), uploads `apps/web/dist` to an S3 bucket and invalidates the CloudFront distribution in front of it. Hashed files under `assets/` are stored with `Cache-Control: public, max-age=31536000, immutable`, `index.html` with `no-cache`, and the un-hashed files from `public/` with a five-minute TTL. New assets are uploaded before `index.html` and stale ones pruned after it, so no page ever references a chunk that is missing from the bucket. Trigger it by hand from the Actions tab (`workflow_dispatch`); a manual run from a branch other than `main` builds but does not deploy.
+`.github/workflows/deploy-web.yml` runs on every push to `main` that touches `apps/web`. It installs with Bun, runs `oxlint` and `tsc -b`, builds with Vite, then authenticates to AWS with a deploy IAM user's access key stored as GitHub secrets, uploads `apps/web/dist` to an S3 bucket and invalidates the CloudFront distribution in front of it. Hashed files under `assets/` are stored with `Cache-Control: public, max-age=31536000, immutable`, `index.html` with `no-cache`, and the un-hashed files from `public/` with a five-minute TTL. New assets are uploaded before `index.html` and stale ones pruned after it, so no page ever references a chunk that is missing from the bucket. Trigger it by hand from the Actions tab (`workflow_dispatch`); a manual run from a branch other than `main` builds but does not deploy.
 
 One-time AWS setup:
 
 1. Create a private S3 bucket (block public access on) and a CloudFront distribution that uses it as origin through Origin Access Control. Set the default root object to `index.html` and add custom error responses that return `/index.html` with status 200 for 403 and 404, so client-side routes such as `/search` survive a hard reload. Keep the cache policy's minimum TTL at 0 so the `no-cache` on `index.html` is honoured.
-2. Add GitHub as an OIDC identity provider in IAM (`token.actions.githubusercontent.com`, audience `sts.amazonaws.com`) if the account does not have one yet.
-3. Create the deploy role. The trust policy matches the workflow's `production` environment; to stop manual runs from other branches assuming it, restrict that environment to the `main` branch under Settings → Environments.
-
-   ```json
-   {
-     "Version": "2012-10-17",
-     "Statement": [
-       {
-         "Effect": "Allow",
-         "Principal": {
-           "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com"
-         },
-         "Action": "sts:AssumeRoleWithWebIdentity",
-         "Condition": {
-           "StringEquals": {
-             "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-             "token.actions.githubusercontent.com:sub": "repo:tushgaurav/torseek.org:environment:production"
-           }
-         }
-       }
-     ]
-   }
-   ```
-
-   Its permissions policy only needs the bucket and the distribution:
+2. Create an IAM user for the deploy (for example `github-deploy-web`) with no console access and attach the permissions policy below. It only needs the bucket and the distribution:
 
    ```json
    {
@@ -188,11 +164,14 @@ One-time AWS setup:
    }
    ```
 
+3. Create an access key for that user (IAM → Users → Security credentials → Create access key, use case "Application running outside AWS") and store the key ID and secret as the two secrets in the table below. The key is long-lived, so scope both secrets to the `production` environment rather than the repository, and restrict that environment to the `main` branch under Settings → Environments so a manual run from another branch cannot read them. To rotate, create a second key, update the secrets, then delete the old one.
+
 Repository variables and secrets (Settings → Secrets and variables → Actions). The deploy job runs in the `production` environment, so the AWS values may be scoped to it; the `VITE_*` variables are read by the build job and must be repository-level.
 
 | Name                         | Kind     | Value                                                                                   |
 | ---------------------------- | -------- | --------------------------------------------------------------------------------------- |
-| `AWS_ROLE_ARN`               | secret   | ARN of the deploy role above                                                            |
+| `AWS_ACCESS_KEY_ID`          | secret   | Access key ID of the deploy user above                                                  |
+| `AWS_SECRET_ACCESS_KEY`      | secret   | Secret access key of the deploy user above                                              |
 | `AWS_REGION`                 | variable | Region of the bucket, e.g. `eu-west-1`                                                  |
 | `S3_BUCKET`                  | variable | Bucket name                                                                             |
 | `CLOUDFRONT_DISTRIBUTION_ID` | variable | e.g. `E1ABCDEF2GHIJK`                                                                   |

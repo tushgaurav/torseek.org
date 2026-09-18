@@ -73,9 +73,6 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
-    permissions:
-      contents: read
-      id-token: write
     env:
       S3_BUCKET: ${{ vars.S3_BUCKET }}
       CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
@@ -83,10 +80,11 @@ jobs:
     steps:
       - name: Check configuration
         env:
-          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         run: |
           missing=0
-          for name in AWS_ROLE_ARN AWS_REGION S3_BUCKET CLOUDFRONT_DISTRIBUTION_ID; do
+          for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION S3_BUCKET CLOUDFRONT_DISTRIBUTION_ID; do
             if [ -z "${!name}" ]; then
               echo "::error::$name is not set. See README, 'Deploying the web app from CI'." >&2
               missing=1
@@ -99,11 +97,13 @@ jobs:
           name: web-dist
           path: dist
 
+      # Static access key of the deploy IAM user. The secrets live in the
+      # production environment, so only jobs that reference it can read them.
       - uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-          role-session-name: github-deploy-web-${{ github.run_id }}
 
       # Vite content-hashes everything under assets/, so those files can be
       # cached forever and a same-named file is always the same file
