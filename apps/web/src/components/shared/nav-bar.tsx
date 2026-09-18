@@ -1,16 +1,10 @@
-import { Link } from 'react-router'
+import { Link, NavLink } from 'react-router'
 
 import { ModeToggle } from '@/components/shared/mode-toggle'
 import { Button } from '@/components/ui/button'
-import {
-  NavigationMenu,
-  NavigationMenuContent,
-  NavigationMenuItem,
-  NavigationMenuLink,
-  NavigationMenuList,
-  NavigationMenuTrigger,
-} from '@/components/ui/navigation-menu'
+import { navigationMenuTriggerStyle } from '@/components/ui/navigation-menu'
 import { siteContent } from '@/content/content'
+import { cn } from '@/lib/utils'
 
 export default function NavBar() {
   return (
@@ -23,49 +17,19 @@ export default function NavBar() {
             </span>
           </Link>
 
-          <NavigationMenu>
-            <NavigationMenuList>
-              {siteContent.header.menus.map((menu, index) => (
-                <NavigationMenuItem key={`${menu.trigger}-${index}`}>
-                  <NavigationMenuTrigger>{menu.trigger}</NavigationMenuTrigger>
-                  <NavigationMenuContent>
-                    {menu.featured ? (
-                      <ul className="grid gap-2 md:w-[400px] lg:w-[500px] lg:grid-cols-[.75fr_1fr]">
-                        <li className="row-span-3">
-                          <NavigationMenuLink asChild>
-                            <Link
-                              className="from-muted/50 to-muted flex h-full w-full flex-col justify-end rounded-md bg-linear-to-b p-6 no-underline outline-hidden select-none focus:shadow-md"
-                              to={menu.featured.href}
-                            >
-                              <div className="mt-4 mb-2 text-lg font-medium">{menu.featured.title}</div>
-                              <p className="text-muted-foreground text-sm leading-tight">
-                                {menu.featured.description}
-                              </p>
-                            </Link>
-                          </NavigationMenuLink>
-                        </li>
-                        {menu.links.map((link) => (
-                          <ListItem key={link.href + link.title} href={link.href} title={link.title ?? link.label ?? ''}>
-                            {link.description}
-                          </ListItem>
-                        ))}
-                      </ul>
-                    ) : (
-                      <ul className="grid w-[240px] gap-1">
-                        {menu.links.map((link) => (
-                          <li key={link.href + link.label}>
-                            <NavigationMenuLink asChild>
-                              <Link to={link.href}>{link.label ?? link.title}</Link>
-                            </NavigationMenuLink>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </NavigationMenuContent>
-                </NavigationMenuItem>
-              ))}
-            </NavigationMenuList>
-          </NavigationMenu>
+          <nav className="flex items-center gap-1">
+            {siteContent.header.links.map((link) => (
+              <NavLink
+                key={link.href}
+                to={link.href}
+                className={({ isActive }) =>
+                  cn(navigationMenuTriggerStyle(), isActive && 'bg-accent/50 text-accent-foreground')
+                }
+              >
+                {link.label}
+              </NavLink>
+            ))}
+          </nav>
         </div>
 
         <div className="flex items-center gap-4">
@@ -76,23 +40,5 @@ export default function NavBar() {
         </div>
       </div>
     </div>
-  )
-}
-
-function ListItem({
-  title,
-  children,
-  href,
-  ...props
-}: React.ComponentPropsWithoutRef<'li'> & { href: string }) {
-  return (
-    <li {...props}>
-      <NavigationMenuLink asChild>
-        <Link to={href}>
-          <div className="text-sm leading-none font-medium">{title}</div>
-          <p className="text-muted-foreground line-clamp-2 text-sm leading-snug">{children}</p>
-        </Link>
-      </NavigationMenuLink>
-    </li>
   )
 }
