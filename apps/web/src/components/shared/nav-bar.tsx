@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 
 export default function NavBar() {
   return (
-    <div className="border-b-2 dark:border-accent border-secondary">
+    <div className="sticky top-0 z-40 border-b-2 dark:border-accent border-secondary bg-background/80 backdrop-blur">
       <div className="flex px-6 py-4 items-center gap-4 max-w-screen-2xl mx-auto justify-between">
         <div className="flex gap-4">
           <Link to="/" className="p-1">
