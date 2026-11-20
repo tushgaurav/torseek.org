@@ -4,6 +4,12 @@
 
 A rewrite of [torseek](https://www.tushgaurav.com/projects/torseek), a torrent search client backed by Jackett, this time as a Node/TypeScript monorepo.
 
+## Motivation
+
+Finding a torrent today means fighting the site before you get to the file. The big public torrent sites are blocked by ISPs in many countries, so you end up hopping between mirrors and proxy domains that vanish every few weeks, and some of those are clones run by whoever grabbed the domain. The sites that do load are covered in ads, pop-unders and fake "Download" buttons that lead to malware, and the results are padded with spam uploads and fake torrents. The interfaces haven't changed in years: cluttered tables, few useful filters, barely usable on a phone. On top of that, each site only knows its own index, so finding a good copy means running the same search on several of them.
+
+torseek puts one clean interface in front of all of them. The API queries the indexers through Jackett from a server, so a block on your network doesn't stop the search. Results from every configured indexer come back as one list you can sort by seeders and filter by category, with TMDB metadata to help pick the right release, and no ads, pop-ups or redirects between you and the link.
+
 ## Structure
 
 ```
