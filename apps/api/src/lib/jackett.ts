@@ -39,9 +39,9 @@ export type IndexerInfo = {
   categories: { id: number; name: string }[]
 }
 
+/** Category filtering happens on the cached set (see lib/search.ts), never upstream. */
 export type SearchParams = {
   query: string
-  categories?: number[]
   indexers?: string[]
 }
 
@@ -127,9 +127,8 @@ export function jackettHost(): string {
  * results endpoint. Unlike the Torznab aggregate feed, this reports which
  * indexers succeeded or failed.
  */
-export async function searchJackett({ query, categories = [], indexers = [] }: SearchParams): Promise<SearchOutcome> {
+export async function searchJackett({ query, indexers = [] }: SearchParams): Promise<SearchOutcome> {
   const params: Record<string, string> = { Query: query }
-  if (categories.length > 0) params['Category[]'] = categories.join(',')
   if (indexers.length > 0) params['Tracker[]'] = indexers.join(',')
 
   const res = await jackettFetch(buildUrl('/api/v2.0/indexers/all/results', params))

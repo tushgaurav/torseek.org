@@ -1,6 +1,6 @@
 import { Router } from 'express'
 
-import { isTopLevelCategory } from '../lib/categories.ts'
+import { categoryFacets, filterByCategory, isTopLevelCategory } from '../lib/categories.ts'
 import { JackettError } from '../lib/jackett.ts'
 import { capture, distinctIdFrom, posthog, sessionIdFrom } from '../lib/posthog.ts'
 import { runSearch, searchMode } from '../lib/search.ts'
@@ -79,8 +79,8 @@ searchRouter.get('/', async (req, res) => {
 
   const started = performance.now()
   try {
-    const { outcome, cached } = await runSearch({ query: q, categories, indexers })
-    const sorted = sortItems(outcome.items, sort)
+    const { outcome, cached } = await runSearch({ query: q, indexers })
+    const sorted = sortItems(filterByCategory(outcome.items, categories), sort)
     const start = (page - 1) * PAGE_SIZE
     const tookMs = Math.round(performance.now() - started)
     // Pagination and re-sorts of a cached set still hit this route; only page 1
@@ -111,6 +111,11 @@ searchRouter.get('/', async (req, res) => {
       page_size: PAGE_SIZE,
       total_results: sorted.length,
       results: sorted.slice(start, start + PAGE_SIZE),
+      // Counts over the unfiltered set so the category tabs stay stable whichever one is active.
+      facets: {
+        total: outcome.items.length,
+        categories: categoryFacets(outcome.items),
+      },
       meta: {
         mode: searchMode,
         cached,

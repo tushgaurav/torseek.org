@@ -1,4 +1,4 @@
-import { ArrowUpDown, ChevronDown, Layers, Server } from 'lucide-react'
+import { ArrowUpDown, ChevronDown, Server } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import type { Category, IndexerInfo, SortOption } from '@/lib/api'
+import type { IndexerInfo, SortOption } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 const SORT_GROUPS: { label: string; options: { value: SortOption; label: string }[] }[] = [
@@ -101,38 +101,6 @@ export function SortMenu({ value, onChange }: { value: SortOption; onChange: (so
                 </DropdownMenuRadioItem>
               ))}
             </div>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
-export function CategoryMenu({
-  categories,
-  value,
-  onChange,
-}: {
-  categories: Category[]
-  /** Single selected top-level category, or null for all. */
-  value: number | null
-  onChange: (category: number | null) => void
-}) {
-  const label = value === null ? 'All' : (categories.find((c) => c.id === value)?.name ?? String(value))
-  return (
-    <DropdownMenu>
-      <FilterTrigger icon={<Layers />} prefix="Category" value={label} active={value !== null} />
-      <DropdownMenuContent align="end" className="w-40">
-        <DropdownMenuRadioGroup
-          value={value === null ? 'all' : String(value)}
-          onValueChange={(v) => onChange(v === 'all' ? null : Number(v))}
-        >
-          <DropdownMenuRadioItem value="all">All categories</DropdownMenuRadioItem>
-          <DropdownMenuSeparator />
-          {categories.map((c) => (
-            <DropdownMenuRadioItem key={c.id} value={String(c.id)}>
-              {c.name}
-            </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>

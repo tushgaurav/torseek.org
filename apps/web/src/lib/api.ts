@@ -33,11 +33,22 @@ export type SearchMeta = {
   indexers: IndexerOutcome[]
 }
 
+export type CategoryFacet = Category & { count: number }
+
+/** Counts over the whole (unfiltered) result set for the query. */
+export type SearchFacets = {
+  total: number
+  /** Every top-level category in display order, including empty ones. */
+  categories: CategoryFacet[]
+}
+
 export type SearchResponse = {
   page: number
   page_size: number
+  /** Results matching the active category filter. */
   total_results: number
   results: SearchResult[]
+  facets: SearchFacets
   meta: SearchMeta
 }
 

@@ -13,18 +13,18 @@ const indexerCache = new MemoryCache<IndexerInfo[]>({ ttlMs: 10 * 60_000, maxEnt
 export function normalizeParams(params: SearchParams): Required<SearchParams> {
   return {
     query: params.query.trim().replace(/\s+/g, ' '),
-    categories: [...new Set(params.categories ?? [])].sort((a, b) => a - b),
     indexers: [...new Set(params.indexers ?? [])].sort(),
   }
 }
 
-function cacheKey({ query, categories, indexers }: Required<SearchParams>): string {
-  return JSON.stringify([query.toLowerCase(), categories, indexers])
+function cacheKey({ query, indexers }: Required<SearchParams>): string {
+  return JSON.stringify([query.toLowerCase(), indexers])
 }
 
 /**
- * Full (unpaged) result set for a query, served from the in-process cache when
- * possible so paging and re-sorting never hit Jackett.
+ * Full (unpaged, all-category) result set for a query, served from the
+ * in-process cache when possible. Paging, re-sorting and switching category
+ * tabs all filter this cached set, so they never hit Jackett.
  */
 export async function runSearch(params: SearchParams): Promise<{ outcome: SearchOutcome; cached: boolean }> {
   const normalized = normalizeParams(params)

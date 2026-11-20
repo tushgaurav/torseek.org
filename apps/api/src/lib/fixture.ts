@@ -1,4 +1,3 @@
-import { topLevelOf } from './categories.ts'
 import type { IndexerInfo, IndexerOutcome, SearchOutcome, SearchParams } from './jackett.ts'
 import { normalizeItem, type RawItem, type TorrentItem } from './torznab.ts'
 
@@ -15,22 +14,13 @@ function loadFixture(): Promise<TorrentItem[]> {
   return loaded
 }
 
-function matchesCategory(item: TorrentItem, categories: number[]): boolean {
-  if (categories.length === 0) return true
-  return item.category.some((c) => {
-    const top = topLevelOf(Number(c))
-    return top !== null && categories.includes(top)
-  })
-}
-
-export async function searchFixture({ query, categories = [], indexers = [] }: SearchParams): Promise<SearchOutcome> {
+export async function searchFixture({ query, indexers = [] }: SearchParams): Promise<SearchOutcome> {
   const all = await loadFixture()
 
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   const byTitle = all.filter((item) => words.some((w) => item.title.toLowerCase().includes(w)))
   const scoped = (byTitle.length > 0 ? byTitle : all).filter(
-    (item) =>
-      matchesCategory(item, categories) && (indexers.length === 0 || indexers.includes(item.jackettindexer.id)),
+    (item) => indexers.length === 0 || indexers.includes(item.jackettindexer.id),
   )
 
   const counts = new Map<string, IndexerOutcome>()

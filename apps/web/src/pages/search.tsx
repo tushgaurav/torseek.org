@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
+import { CategoryTabs } from '@/components/search/category-tabs'
 import { LogoPagination } from '@/components/search/logo-pagination'
 import { NoSearchResults } from '@/components/search/no-search-results'
 import { SearchBar } from '@/components/search/search-bar'
-import { CategoryMenu, IndexerMenu, SortMenu } from '@/components/search/search-filters'
+import { IndexerMenu, SortMenu } from '@/components/search/search-filters'
 import SearchResultCard, { SearchResultCardSkeleton } from '@/components/search/search-result-card'
 import { SearchStatus } from '@/components/search/search-status'
 import { Page } from '@/components/shared/page'
@@ -19,16 +20,22 @@ import {
   type SearchResponse,
   type SortOption,
 } from '@/lib/api'
+import { cn } from '@/lib/utils'
 
 const EMPTY: SearchResponse = {
   page: 1,
   page_size: PAGE_SIZE,
   total_results: 0,
   results: [],
+  facets: { total: 0, categories: [] },
   meta: { mode: 'jackett', cached: false, took_ms: 0, indexers: [] },
 }
 
-type RequestState = { key: string; data: SearchResponse; error: string | null }
+/**
+ * `key` identifies the exact request; `baseKey` identifies the underlying
+ * result set (query + indexers) that the server caches and re-filters.
+ */
+type RequestState = { key: string; baseKey: string; data: SearchResponse; error: string | null }
 
 type IndexerCatalog = { indexers: IndexerInfo[]; categories: Category[]; loading: boolean }
 
@@ -52,9 +59,10 @@ export default function SearchResults() {
   const indexers = parseIndexers(searchParams.get('indexers'))
   const indexersKey = indexers.join(',')
 
-  const requestKey = [query, page, sort, category ?? '', indexersKey].join('\u0000')
+  const baseKey = [query, indexersKey].join('\u0000')
+  const requestKey = [baseKey, page, sort, category ?? ''].join('\u0000')
 
-  const [request, setRequest] = useState<RequestState>({ key: '', data: EMPTY, error: null })
+  const [request, setRequest] = useState<RequestState>({ key: '', baseKey: '', data: EMPTY, error: null })
   const [catalog, setCatalog] = useState<IndexerCatalog>({ indexers: [], categories: [], loading: true })
 
   useEffect(() => {
@@ -84,36 +92,38 @@ export default function SearchResults() {
       indexers: indexersKey ? indexersKey.split(',') : [],
     })
       .then((data) => {
-        if (!cancelled) setRequest({ key: requestKey, data, error: null })
+        if (!cancelled) setRequest({ key: requestKey, baseKey, data, error: null })
       })
       .catch((err: unknown) => {
-        if (!cancelled) setRequest({ key: requestKey, data: EMPTY, error: friendlyErrorMessage(err) })
+        if (!cancelled) setRequest({ key: requestKey, baseKey, data: EMPTY, error: friendlyErrorMessage(err) })
       })
 
     return () => {
       cancelled = true
     }
-  }, [query, page, sort, category, indexersKey, requestKey])
+  }, [query, page, sort, category, indexersKey, requestKey, baseKey])
 
   // A request is in flight whenever the settled state doesn't match the URL yet.
-  const loading = Boolean(query) && request.key !== requestKey
-  const data = query && request.key === requestKey ? request.data : EMPTY
-  const error = request.key === requestKey ? request.error : null
+  const settled = request.key === requestKey
+  const loading = Boolean(query) && !settled
+  // Tab, sort and page changes re-filter the server's cached result set and come
+  // back almost instantly, so keep the previous results up (dimmed) rather than
+  // flashing skeletons. Only a new query or indexer selection shows skeletons.
+  const stale = loading && request.baseKey === baseKey && !request.error
+  const data = query && (settled || stale) ? request.data : EMPTY
+  const error = settled ? request.error : null
+  const facets = data === EMPTY ? null : data.facets
 
   const totalPages = Math.max(1, Math.ceil(data.total_results / PAGE_SIZE))
   const firstIndex = data.total_results === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
   const lastIndex = Math.min(page * PAGE_SIZE, data.total_results)
 
   /** Rewrite the URL; any change other than the page number resets to page 1. */
-  const updateParams = (patch: { page?: number; sort?: SortOption; cat?: number | null; indexers?: string[] }) => {
+  const updateParams = (patch: { page?: number; sort?: SortOption; indexers?: string[] }) => {
     const next = new URLSearchParams(searchParams)
     if (patch.sort !== undefined) {
       if (patch.sort === 'relevance') next.delete('sort')
       else next.set('sort', patch.sort)
-    }
-    if (patch.cat !== undefined) {
-      if (patch.cat === null) next.delete('cat')
-      else next.set('cat', String(patch.cat))
     }
     if (patch.indexers !== undefined) {
       if (patch.indexers.length === 0) next.delete('indexers')
@@ -131,6 +141,14 @@ export default function SearchResults() {
     return `?${next.toString()}`
   }
 
+  const categoryHref = (cat: number | null) => {
+    const next = new URLSearchParams(searchParams)
+    if (cat === null) next.delete('cat')
+    else next.set('cat', String(cat))
+    next.delete('page')
+    return `?${next.toString()}`
+  }
+
   const okIndexers = data.meta.indexers.filter((i) => i.status === 'ok').length
 
   return (
@@ -138,10 +156,18 @@ export default function SearchResults() {
       <div className="w-full max-w-3xl">
         <SearchBar key={query} initialValue={query} className="mt-2" />
 
-        <div className="mt-6 border-b pb-2">
+        <CategoryTabs
+          className="mt-5"
+          facets={facets}
+          categories={catalog.categories}
+          value={category}
+          hrefFor={categoryHref}
+        />
+
+        <div className="mt-2">
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
             <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-              {loading ? (
+              {loading && !stale ? (
                 'Searching…'
               ) : data.total_results > 0 ? (
                 <>
@@ -174,7 +200,6 @@ export default function SearchResults() {
             </p>
 
             <div className="flex shrink-0 items-center gap-0.5">
-              <CategoryMenu categories={catalog.categories} value={category} onChange={(cat) => updateParams({ cat })} />
               <IndexerMenu
                 indexers={catalog.indexers}
                 value={indexers}
@@ -185,10 +210,10 @@ export default function SearchResults() {
             </div>
           </div>
 
-          {!loading && data.meta && <SearchStatus meta={data.meta} />}
+          {(!loading || stale) && <SearchStatus meta={data.meta} />}
         </div>
 
-        {loading ? (
+        {loading && !stale ? (
           <ul className="mt-4 flex flex-col gap-3">
             {Array.from({ length: 4 }, (_, i) => (
               <SearchResultCardSkeleton key={i} />
@@ -200,7 +225,10 @@ export default function SearchResults() {
             <p className="text-xs text-muted-foreground">Your query and filters are kept; retry once the backend is back.</p>
           </div>
         ) : data.results.length > 0 ? (
-          <ul className="mt-4 flex flex-col gap-3">
+          <ul
+            aria-busy={stale}
+            className={cn('mt-4 flex flex-col gap-3 transition-opacity duration-150', stale && 'opacity-60')}
+          >
             {data.results.map((result) => (
               <SearchResultCard key={result.guid || `${result.jackettindexer.id}:${result.title}`} {...result} />
             ))}
@@ -209,7 +237,7 @@ export default function SearchResults() {
           <NoSearchResults searchQuery={query} />
         )}
 
-        {!loading && !error && data.results.length > 0 && (
+        {(!loading || stale) && !error && data.results.length > 0 && (
           <div className="mt-10 mb-4 flex flex-col items-center gap-8">
             <LogoPagination
               page={page}
