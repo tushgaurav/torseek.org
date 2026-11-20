@@ -94,15 +94,29 @@ function buildUrl(path: string, params: Record<string, string>): URL {
   return url
 }
 
+/** Connection-level failures only; timeouts and HTTP errors are not retried. */
+const MAX_ATTEMPTS = 2
+const RETRY_DELAY_MS = 500
+
 async function jackettFetch(url: URL): Promise<Response> {
   let res: Response
-  try {
-    res = await fetch(url, { signal: AbortSignal.timeout(env.JACKETT_TIMEOUT_MS) })
-  } catch (err) {
-    if (err instanceof Error && err.name === 'TimeoutError') {
-      throw new JackettError('TIMEOUT', `Jackett did not respond within ${env.JACKETT_TIMEOUT_MS}ms`, { cause: err })
+  for (let attempt = 1; ; attempt++) {
+    try {
+      res = await fetch(url, { signal: AbortSignal.timeout(env.JACKETT_TIMEOUT_MS) })
+      break
+    } catch (err) {
+      // A timeout has already spent the user's whole wait; retrying would double it.
+      if (err instanceof Error && err.name === 'TimeoutError') {
+        throw new JackettError('TIMEOUT', `Jackett did not respond within ${env.JACKETT_TIMEOUT_MS}ms`, { cause: err })
+      }
+      if (attempt >= MAX_ATTEMPTS) {
+        throw new JackettError('UNREACHABLE', `Could not connect to Jackett at ${jackettHost()}`, { cause: err })
+      }
+      // Refused/reset connections fail fast (e.g. Jackett restarting), so one retry is cheap.
+      // Host only: the URL carries the API key.
+      console.warn(`[api] could not connect to Jackett at ${jackettHost()}; retrying in ${RETRY_DELAY_MS}ms`)
+      await Bun.sleep(RETRY_DELAY_MS)
     }
-    throw new JackettError('UNREACHABLE', `Could not connect to Jackett at ${jackettHost()}`, { cause: err })
   }
   if (res.status === 401 || res.status === 403) {
     throw new JackettError('UNAUTHORIZED', 'Jackett rejected the API key')
