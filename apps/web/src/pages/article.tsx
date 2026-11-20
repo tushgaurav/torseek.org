@@ -16,6 +16,7 @@ import {
   relatedArticles,
 } from '@/content/articles'
 import { siteContent } from '@/content/content'
+import { useScrollReset } from '@/lib/use-scroll-reset'
 
 import NotFound from './not-found'
 
@@ -29,14 +30,7 @@ export default function Article() {
     }
   }, [article])
 
-  // React Router keeps the scroll position between articles; reset it, or
-  // honour a deep link to a section if one was shared.
-  useEffect(() => {
-    const hash = window.location.hash.slice(1)
-    const target = hash ? document.getElementById(hash) : null
-    if (target) target.scrollIntoView()
-    else window.scrollTo(0, 0)
-  }, [slug])
+  useScrollReset(slug)
 
   if (!article) return <NotFound />
 

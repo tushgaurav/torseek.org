@@ -9,6 +9,9 @@ export const siteContent = {
     description: 'Torrent Search Engine',
     titleTemplate: '%s | torseek',
   },
+  contact: {
+    email: 'contact@torseek.org',
+  },
   header: {
     links: [{ label: 'Articles', href: '/articles' }],
   },

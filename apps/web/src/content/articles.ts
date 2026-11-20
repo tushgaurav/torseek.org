@@ -536,7 +536,7 @@ export function sectionId(text: string): string {
 }
 
 /** Title plus every h2, in reading order, for the on-page table of contents. */
-export function articleSections(article: Article): Section[] {
+export function articleSections(article: Pick<Article, 'title' | 'body'>): Section[] {
   return [
     { id: INTRO_ID, title: article.title },
     ...article.body
