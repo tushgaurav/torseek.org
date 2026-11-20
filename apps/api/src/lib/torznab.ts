@@ -33,6 +33,8 @@ export type TorrentItem = {
   files: string | null
   description: string
   magnetLink: string
+  /** Set when magnetLink is empty but the API can resolve one on demand via GET /api/magnet/:token. */
+  magnetToken: string | null
   category: string[]
   comments: string | null
   type: string | null
@@ -125,6 +127,8 @@ export function normalizeItem(item: RawItem): TorrentItem {
     files: item.files ?? null,
     description: sanitizeDescription(item.description ?? ''),
     magnetLink,
+    // Fixture data never goes through Jackett, so there is nothing to resolve.
+    magnetToken: null,
     category,
     comments: item.comments && !isJackettUrl(item.comments) ? item.comments : null,
     type: item.type ?? null,

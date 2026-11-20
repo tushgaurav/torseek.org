@@ -1,6 +1,7 @@
 import { XMLParser } from 'fast-xml-parser'
 
 import { env } from '../env.ts'
+import { sealMagnetToken } from './magnet-token.ts'
 import { isJackettUrl, sanitizeDescription, type TorrentItem } from './torznab.ts'
 
 export type JackettErrorCode = 'UNAUTHORIZED' | 'UNREACHABLE' | 'TIMEOUT' | 'UPSTREAM'
@@ -98,16 +99,25 @@ function buildUrl(path: string, params: Record<string, string>): URL {
 const MAX_ATTEMPTS = 2
 const RETRY_DELAY_MS = 500
 
-async function jackettFetch(url: URL): Promise<Response> {
+type JackettFetchOptions = {
+  timeoutMs?: number
+  /** 'manual' hands 3xx responses back to the caller instead of treating them as errors. */
+  redirect?: 'follow' | 'manual'
+}
+
+export async function jackettFetch(
+  url: URL,
+  { timeoutMs = env.JACKETT_TIMEOUT_MS, redirect = 'follow' }: JackettFetchOptions = {},
+): Promise<Response> {
   let res: Response
   for (let attempt = 1; ; attempt++) {
     try {
-      res = await fetch(url, { signal: AbortSignal.timeout(env.JACKETT_TIMEOUT_MS) })
+      res = await fetch(url, { redirect, signal: AbortSignal.timeout(timeoutMs) })
       break
     } catch (err) {
       // A timeout has already spent the user's whole wait; retrying would double it.
       if (err instanceof Error && err.name === 'TimeoutError') {
-        throw new JackettError('TIMEOUT', `Jackett did not respond within ${env.JACKETT_TIMEOUT_MS}ms`, { cause: err })
+        throw new JackettError('TIMEOUT', `Jackett did not respond within ${timeoutMs}ms`, { cause: err })
       }
       if (attempt >= MAX_ATTEMPTS) {
         throw new JackettError('UNREACHABLE', `Could not connect to Jackett at ${jackettHost()}`, { cause: err })
@@ -121,7 +131,8 @@ async function jackettFetch(url: URL): Promise<Response> {
   if (res.status === 401 || res.status === 403) {
     throw new JackettError('UNAUTHORIZED', 'Jackett rejected the API key')
   }
-  if (!res.ok) {
+  const handedBack = redirect === 'manual' && res.status >= 300 && res.status < 400
+  if (!res.ok && !handedBack) {
     throw new JackettError('UPSTREAM', `Jackett responded with HTTP ${res.status}`)
   }
   return res
@@ -215,6 +226,14 @@ export function fromJackettResult(r: JackettResult): TorrentItem {
   const magnetLink = magnetOnly(r.MagnetUri, r.Link)
   if (magnetLink) attrs.magneturl = magnetLink
 
+  // No magnet yet: Jackett can fetch it through its download proxy, but only on
+  // request (see routes/magnet.ts). Public indexers only: a private .torrent
+  // carries the operator's passkey in its announce URLs.
+  const magnetToken =
+    !magnetLink && r.Link && isJackettUrl(r.Link) && r.TrackerType === 'public'
+      ? sealMagnetToken(r.Link, `${r.TrackerId ?? ''}\0${r.Guid || r.Details || r.Link}`)
+      : null
+
   return {
     title: r.Title ?? '',
     guid: r.Guid ?? magnetLink ?? '',
@@ -223,6 +242,7 @@ export function fromJackettResult(r: JackettResult): TorrentItem {
     files: r.Files === null || r.Files === undefined ? null : String(r.Files),
     description: sanitizeDescription(r.Description ?? ''),
     magnetLink,
+    magnetToken,
     category: categoryIds,
     comments: r.Details && !isJackettUrl(r.Details) ? r.Details : null,
     type: r.TrackerType ?? null,

@@ -48,6 +48,8 @@ export const env = {
   JACKETT_TIMEOUT_MS: integer('JACKETT_TIMEOUT_MS', 30_000),
   /** How long a full result set stays in the API's in-process cache for paging and re-sorting. */
   SEARCH_CACHE_TTL_MS: integer('SEARCH_CACHE_TTL_MS', 600_000),
+  /** Upper bound for fetching one torrent through Jackett when a user asks for its magnet. */
+  MAGNET_TIMEOUT_MS: integer('MAGNET_TIMEOUT_MS', 20_000),
   /** TMDB v3 API key or v4 read access token. Empty disables the title panel. */
   TMDB_API_KEY: optional('TMDB_API_KEY', '').trim(),
   TMDB_API_URL: optional('TMDB_API_URL', 'https://api.themoviedb.org/3').replace(/\/+$/, ''),

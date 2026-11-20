@@ -9,6 +9,8 @@ export type SearchResult = {
   description: string
   /** Magnet URI, or empty string when the indexer only offers a .torrent download. */
   magnetLink: string
+  /** When magnetLink is empty: pass to resolveMagnet() to have the API fetch the magnet. */
+  magnetToken: string | null
   category: string[]
   comments: string | null
   type: string | null
@@ -130,6 +132,8 @@ export type ApiErrorCode =
   | 'JACKETT_TIMEOUT'
   | 'JACKETT_UNAUTHORIZED'
   | 'JACKETT_ERROR'
+  | 'MAGNET_UNAVAILABLE'
+  | 'RATE_LIMITED'
   | 'INTERNAL'
   | 'NETWORK'
 
@@ -151,6 +155,8 @@ const FRIENDLY_MESSAGES: Record<ApiErrorCode, string> = {
   JACKETT_TIMEOUT: 'The indexers took too long to respond. Try again in a moment.',
   JACKETT_UNAUTHORIZED: 'The server is misconfigured: Jackett rejected its API key.',
   JACKETT_ERROR: 'The search backend returned an unexpected response.',
+  MAGNET_UNAVAILABLE: "Couldn't get a magnet link for that result.",
+  RATE_LIMITED: 'Too many requests. Wait a minute and try again.',
   INTERNAL: 'Something went wrong on the server.',
   NETWORK: 'Could not reach the server. Check your connection.',
 }
@@ -220,6 +226,27 @@ export function getTitlePanel({ query, indexers }: Pick<SearchRequest, 'query' |
   const params = new URLSearchParams({ q: query })
   if (indexers && indexers.length > 0) params.set('indexers', indexers.join(','))
   return request<TitlePanelResponse>(`/api/meta?${params}`)
+}
+
+const magnetRequests = new Map<string, Promise<string>>()
+
+/**
+ * Magnet for a result's magnetToken; the first call makes the API fetch the
+ * torrent through Jackett. Memoised per token so repeat clicks are instant,
+ * while a failed lookup is forgotten so it can be retried.
+ */
+export function resolveMagnet(token: string): Promise<string> {
+  let pending = magnetRequests.get(token)
+  if (!pending) {
+    pending = request<{ magnet: string }>(`/api/magnet/${encodeURIComponent(token)}`).then(({ magnet }) => {
+      // It ends up in an href; never let anything but a magnet through.
+      if (!magnet.startsWith('magnet:')) throw new ApiError('MAGNET_UNAVAILABLE', 'Server returned a non-magnet link', 502)
+      return magnet
+    })
+    magnetRequests.set(token, pending)
+    pending.catch(() => magnetRequests.delete(token))
+  }
+  return pending
 }
 
 /** Absolute URL for an API-relative path such as a proxied poster. */

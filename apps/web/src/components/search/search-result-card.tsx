@@ -1,11 +1,11 @@
-import { ArrowDown, ArrowUp, Calendar, Download, ExternalLink, HardDrive, Magnet, User } from 'lucide-react'
-import { useMemo } from 'react'
+import { ArrowDown, ArrowUp, Calendar, Download, ExternalLink, HardDrive, LoaderCircle, Magnet, User } from 'lucide-react'
+import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { usePostHog } from '@posthog/react'
 
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import type { SearchResult } from '@/lib/api'
+import { ApiError, friendlyErrorMessage, resolveMagnet, type SearchResult } from '@/lib/api'
 import { formatFullDate, parseDescription, timeAgo } from '@/lib/format'
 import { cn, formatBytes } from '@/lib/utils'
 
@@ -16,6 +16,7 @@ export default function SearchResultCard({
   pubDate,
   description,
   magnetLink,
+  magnetToken,
   comments,
   seeders,
   peers,
@@ -25,10 +26,17 @@ export default function SearchResultCard({
   const uploaded = new Date(pubDate)
   const { uploader, text } = useMemo(() => parseDescription(description, title), [description, title])
   const infohash = typeof attrs.infohash === 'string' ? attrs.infohash : null
-  // Some indexers (e.g. 1337x) only expose the magnet on the torrent's own page,
-  // which Jackett fetches lazily through a proxy URL that carries its key, so the
-  // API withholds it. For those, the indexer's details page is the way in.
-  const hasMagnet = magnetLink.startsWith('magnet:')
+  // Some indexers (e.g. 1337x) only expose the magnet on the torrent's own page.
+  // Those results carry a magnetToken instead, and the API fetches the magnet
+  // through Jackett the first time someone asks for it.
+  const [resolved, setResolved] = useState<{ token: string; magnet: string } | null>(null)
+  const [resolving, setResolving] = useState(false)
+  const magnet = magnetLink.startsWith('magnet:')
+    ? magnetLink
+    : resolved && resolved.token === magnetToken
+      ? resolved.magnet
+      : null
+  const offersMagnet = magnet !== null || magnetToken !== null
   // `comments` is the indexer's details page; only ever render it as an http(s) link.
   const detailsUrl = comments && /^https?:\/\//i.test(comments) ? comments : null
   const sourceLabel = `Open on ${jackettindexer.name}`
@@ -43,25 +51,82 @@ export default function SearchResultCard({
     })
   }
 
+  const getMagnet = (): Promise<string> => {
+    if (magnet) return Promise.resolve(magnet)
+    if (!magnetToken) return Promise.reject(new ApiError('MAGNET_UNAVAILABLE', 'No magnet for this result', 0))
+    const token = magnetToken
+    setResolving(true)
+    return resolveMagnet(token)
+      .then((value) => {
+        setResolved({ token, magnet: value })
+        return value
+      })
+      .catch((err: unknown) => {
+        track('magnet_resolve_failed', { code: err instanceof ApiError ? err.code : 'UNKNOWN' })
+        throw err
+      })
+      .finally(() => setResolving(false))
+  }
+
+  const showMagnetError = (err: unknown) => {
+    const message =
+      err instanceof ApiError && err.code === 'MAGNET_UNAVAILABLE'
+        ? `Couldn't get a magnet link from ${jackettindexer.name}.`
+        : friendlyErrorMessage(err)
+    toast.error(
+      message,
+      detailsUrl
+        ? { action: { label: sourceLabel, onClick: () => window.open(detailsUrl, '_blank', 'noopener,noreferrer') } }
+        : undefined,
+    )
+  }
+
   const copyMagnet = async () => {
-    await navigator.clipboard.writeText(magnetLink)
-    track('magnet_copied')
+    const lookedUp = magnet === null
+    try {
+      await copyPendingText(getMagnet())
+    } catch (err) {
+      if (err instanceof ApiError) showMagnetError(err)
+      else toast.error('Could not copy to the clipboard.')
+      return
+    }
+    track('magnet_copied', { resolved: lookedUp })
     toast.success('Magnet link copied to clipboard.')
+  }
+
+  const openLookedUpMagnet = async () => {
+    try {
+      const value = await getMagnet()
+      track('result_opened', { resolved: true })
+      window.location.href = value
+    } catch (err) {
+      showMagnetError(err)
+    }
   }
 
   return (
     <li className="rounded-lg border border-border/60 bg-card/60 p-4 transition-colors hover:border-border hover:bg-card">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
-          {hasMagnet ? (
+          {magnet ? (
             <a
-              href={magnetLink}
+              href={magnet}
               title={title}
               onClick={() => track('result_opened')}
               className="line-clamp-2 text-base font-medium leading-snug transition-colors hover:text-primary"
             >
               {title}
             </a>
+          ) : magnetToken ? (
+            <button
+              type="button"
+              title={title}
+              onClick={openLookedUpMagnet}
+              disabled={resolving}
+              className="cursor-pointer text-left text-base font-medium leading-snug transition-colors hover:text-primary disabled:cursor-wait"
+            >
+              <span className="line-clamp-2">{title}</span>
+            </button>
           ) : detailsUrl ? (
             <a
               href={detailsUrl}
@@ -114,13 +179,20 @@ export default function SearchResultCard({
         </div>
 
         <div className="flex shrink-0 items-center gap-2 sm:pt-0.5">
-          {hasMagnet && (
-            <Button variant="outline" size="sm" onClick={copyMagnet} className="active:scale-[0.97]">
-              <Magnet />
+          {offersMagnet && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={copyMagnet}
+              disabled={resolving}
+              aria-busy={resolving}
+              className="active:scale-[0.97]"
+            >
+              {resolving ? <LoaderCircle className="animate-spin" /> : <Magnet />}
               Magnet link
             </Button>
           )}
-          {!hasMagnet && detailsUrl && (
+          {!offersMagnet && detailsUrl && (
             <Button asChild variant="outline" size="sm" className="active:scale-[0.97]">
               <a
                 href={detailsUrl}
@@ -133,7 +205,7 @@ export default function SearchResultCard({
               </a>
             </Button>
           )}
-          {!hasMagnet && !detailsUrl && !infohash && (
+          {!offersMagnet && !detailsUrl && !infohash && (
             <span className="text-xs text-muted-foreground">No magnet available</span>
           )}
           {infohash && (
@@ -149,7 +221,7 @@ export default function SearchResultCard({
               </a>
             </Button>
           )}
-          {hasMagnet && detailsUrl && (
+          {offersMagnet && detailsUrl && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -176,6 +248,24 @@ export default function SearchResultCard({
       </div>
     </li>
   )
+}
+
+/**
+ * Copies text that may still be loading. Handing ClipboardItem the promise
+ * keeps the click's user activation, which Safari otherwise drops across an
+ * await. If the lookup itself failed, that error is rethrown as is.
+ */
+async function copyPendingText(text: Promise<string>): Promise<void> {
+  if (typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
+    try {
+      const blob = text.then((value) => new Blob([value], { type: 'text/plain' }))
+      await navigator.clipboard.write([new ClipboardItem({ 'text/plain': blob })])
+      return
+    } catch {
+      await text
+    }
+  }
+  await navigator.clipboard.writeText(await text)
 }
 
 function Meta({
