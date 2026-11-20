@@ -166,7 +166,7 @@ export default function SearchResults() {
 
         <div className="mt-2">
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+            <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
               {loading && !stale ? (
                 'Searching…'
               ) : data.total_results > 0 ? (

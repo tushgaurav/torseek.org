@@ -70,14 +70,14 @@ function FilterTrigger({
         variant="ghost"
         size="sm"
         className={cn(
-          'shrink-0 text-muted-foreground hover:text-foreground',
+          'h-7 shrink-0 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground has-[>svg]:px-2',
           active && 'text-foreground',
           disabled && 'opacity-60',
         )}
       >
-        <span className="[&>svg]:size-3.5">{icon}</span>
+        <span className="[&>svg]:size-3">{icon}</span>
         <span className="hidden sm:inline">{prefix}:</span> {value}
-        <ChevronDown className="size-3.5 opacity-60" />
+        <ChevronDown className="size-3 opacity-60" />
       </Button>
     </DropdownMenuTrigger>
   )
