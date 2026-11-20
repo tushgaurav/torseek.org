@@ -7,7 +7,7 @@ import { NoSearchResults } from '@/components/search/no-search-results'
 import { SearchBar } from '@/components/search/search-bar'
 import { IndexerMenu, SortMenu } from '@/components/search/search-filters'
 import SearchResultCard, { SearchResultCardSkeleton } from '@/components/search/search-result-card'
-import { SearchStatus } from '@/components/search/search-status'
+import { SearchSummary } from '@/components/search/search-status'
 import { TitlePanel } from '@/components/search/title-panel'
 import { Page } from '@/components/shared/page'
 import {
@@ -39,7 +39,14 @@ const EMPTY: SearchResponse = {
  * `key` identifies the exact request; `baseKey` identifies the underlying
  * result set (query + indexers) that the server caches and re-filters.
  */
-type RequestState = { key: string; baseKey: string; data: SearchResponse; error: string | null }
+type RequestState = {
+  key: string
+  baseKey: string
+  data: SearchResponse
+  error: string | null
+  /** How long the underlying search took upstream; null if it was only ever served from cache. */
+  tookMs: number | null
+}
 
 type IndexerCatalog = { indexers: IndexerInfo[]; categories: Category[]; loading: boolean }
 
@@ -74,7 +81,13 @@ export default function SearchResults() {
   const baseKey = [query, indexersKey].join('\u0000')
   const requestKey = [baseKey, page, sort, category ?? ''].join('\u0000')
 
-  const [request, setRequest] = useState<RequestState>({ key: '', baseKey: '', data: EMPTY, error: null })
+  const [request, setRequest] = useState<RequestState>({
+    key: '',
+    baseKey: '',
+    data: EMPTY,
+    error: null,
+    tookMs: null,
+  })
   const [catalog, setCatalog] = useState<IndexerCatalog>({ indexers: [], categories: [], loading: true })
   const [titlePanel, setTitlePanel] = useState<PanelState>({ baseKey: '', panel: null })
   const [dismissedPanel, setDismissedPanel] = useState<string | null>(null)
@@ -106,10 +119,21 @@ export default function SearchResults() {
       indexers: indexersKey ? indexersKey.split(',') : [],
     })
       .then((data) => {
-        if (!cancelled) setRequest({ key: requestKey, baseKey, data, error: null })
+        if (cancelled) return
+        setRequest((prev) => ({
+          key: requestKey,
+          baseKey,
+          data,
+          error: null,
+          // Tab, sort and page changes are served from the server's cache; keep
+          // the time the search itself took instead of dropping it.
+          tookMs: !data.meta.cached ? data.meta.took_ms : prev.baseKey === baseKey ? prev.tookMs : null,
+        }))
       })
       .catch((err: unknown) => {
-        if (!cancelled) setRequest({ key: requestKey, baseKey, data: EMPTY, error: friendlyErrorMessage(err) })
+        if (!cancelled) {
+          setRequest({ key: requestKey, baseKey, data: EMPTY, error: friendlyErrorMessage(err), tookMs: null })
+        }
       })
 
     return () => {
@@ -162,8 +186,6 @@ export default function SearchResults() {
   const inlinePanelAt = page === 1 ? Math.min(INLINE_PANEL_AFTER, data.results.length) - 1 : -1
 
   const totalPages = Math.max(1, Math.ceil(data.total_results / PAGE_SIZE))
-  const firstIndex = data.total_results === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
-  const lastIndex = Math.min(page * PAGE_SIZE, data.total_results)
 
   /** Rewrite the URL; any change other than the page number resets to page 1. */
   const updateParams = (patch: { page?: number; sort?: SortOption; indexers?: string[] }) => {
@@ -196,74 +218,45 @@ export default function SearchResults() {
     return `?${next.toString()}`
   }
 
-  const okIndexers = data.meta.indexers.filter((i) => i.status === 'ok').length
-
   return (
     <Page>
-      <div className="w-full max-w-3xl">
-        <SearchBar key={query} initialValue={query} className="mt-2" />
+      {/* The header and the results share one 48rem column, so the search bar, tabs,
+          toolbar and cards line up on both edges. The title panel only gets its own
+          column from xl, where both fit at full width; below that it sits inline in
+          the list, so the results never shrink to make room for it. */}
+      <div className="max-w-3xl xl:grid xl:max-w-none xl:grid-cols-[minmax(0,48rem)_22rem] xl:items-start xl:gap-x-12">
+        <div className="min-w-0">
+          <SearchBar key={query} initialValue={query} className="mt-2 max-w-none" />
 
-        <CategoryTabs
-          className="mt-5"
-          facets={facets}
-          categories={catalog.categories}
-          value={category}
-          hrefFor={categoryHref}
-        />
+          <CategoryTabs
+            className="mt-5"
+            facets={facets}
+            categories={catalog.categories}
+            value={category}
+            hrefFor={categoryHref}
+          />
 
-        <div className="mt-2">
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-              {loading && !stale ? (
-                'Searching…'
-              ) : data.total_results > 0 ? (
-                <>
-                  <span className="font-medium text-foreground">{data.total_results.toLocaleString()}</span> results
-                  {query && (
-                    <>
-                      {' '}
-                      for <span className="text-foreground">“{query}”</span>
-                    </>
-                  )}
-                  <span className="hidden sm:inline">
-                    {okIndexers > 0 && (
-                      <>
-                        {' '}
-                        from {okIndexers} {okIndexers === 1 ? 'indexer' : 'indexers'}
-                      </>
-                    )}
-                    {' '}
-                    · showing {firstIndex}–{lastIndex}
-                  </span>
-                </>
-              ) : (
-                query &&
-                !error && (
-                  <>
-                    No results for <span className="text-foreground">“{query}”</span>
-                  </>
-                )
-              )}
-            </p>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <SearchSummary
+              searching={loading && !stale}
+              total={Boolean(query) && !error && (settled || stale) ? data.total_results : null}
+              meta={data.meta}
+              tookMs={request.tookMs}
+            />
 
-            <div className="flex shrink-0 items-center gap-0.5">
+            <div className="flex shrink-0 items-center gap-2 sm:ml-auto">
+              <SortMenu value={sort} onChange={(s) => updateParams({ sort: s })} />
               <IndexerMenu
                 indexers={catalog.indexers}
                 value={indexers}
                 loading={catalog.loading}
                 onChange={(ids) => updateParams({ indexers: ids })}
               />
-              <SortMenu value={sort} onChange={(s) => updateParams({ sort: s })} />
             </div>
           </div>
-
-          {(!loading || stale) && <SearchStatus meta={data.meta} />}
         </div>
-      </div>
 
-      {/* Results keep the original 48rem column; the panel takes a second column from lg up. */}
-      <div className="lg:grid lg:grid-cols-[minmax(0,48rem)_22rem] lg:items-start lg:gap-8 xl:gap-12">
-        <div className="min-w-0">
+        <div className="min-w-0 xl:col-start-1">
           {loading && !stale ? (
             <ul className="mt-4 flex flex-col gap-3">
               {Array.from({ length: 4 }, (_, i) => (
@@ -284,7 +277,7 @@ export default function SearchResults() {
                 <Fragment key={result.guid || `${result.jackettindexer.id}:${result.title}`}>
                   <SearchResultCard {...result} />
                   {panel && i === inlinePanelAt && (
-                    <li className="lg:hidden">
+                    <li className="xl:hidden">
                       <TitlePanel panel={panel} variant="inline" onDismiss={() => setDismissedPanel(baseKey)} />
                     </li>
                   )}
@@ -309,7 +302,7 @@ export default function SearchResults() {
         </div>
 
         {panel && (
-          <aside className="mt-4 hidden lg:block">
+          <aside className="mt-4 hidden xl:col-start-2 xl:row-start-2 xl:block">
             <TitlePanel panel={panel} variant="side" onDismiss={() => setDismissedPanel(baseKey)} />
           </aside>
         )}

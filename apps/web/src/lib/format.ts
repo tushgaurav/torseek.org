@@ -30,6 +30,11 @@ export function formatFullDate(date: Date): string {
   })
 }
 
+/** Seconds to one decimal, never below 0.1s ("1.2s", "0.1s"). */
+export function formatDuration(ms: number): string {
+  return `${(Math.max(ms, 100) / 1000).toFixed(1)}s`
+}
+
 export function formatCount(n: number): string {
   return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(n)
 }

@@ -1,6 +1,5 @@
-import { ArrowUpDown, ChevronDown, Server } from 'lucide-react'
+import { ArrowUpDown, ChevronDown, Server, X } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -51,42 +50,79 @@ const SORT_LABEL: Record<SortOption, string> = Object.fromEntries(
   SORT_GROUPS.flatMap((g) => g.options.map((o) => [o.value, o.label])),
 ) as Record<SortOption, string>
 
-function FilterTrigger({
+/**
+ * A rounded chip that opens a filter menu. Once changed from its default it is
+ * tinted and gains a reset button beside the trigger (not inside it, since a
+ * button can't contain another button).
+ */
+function FilterChip({
   icon,
-  prefix,
+  label,
   value,
   active,
   disabled,
+  onReset,
 }: {
   icon: React.ReactNode
-  prefix: string
+  /** What the chip filters, for screen readers; the chip itself only shows the value. */
+  label: string
   value: string
   active?: boolean
   disabled?: boolean
+  onReset?: () => void
 }) {
+  const resettable = active && onReset && !disabled
+
   return (
-    <DropdownMenuTrigger asChild disabled={disabled}>
-      <Button
-        variant="ghost"
-        size="sm"
-        className={cn(
-          'h-7 shrink-0 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground has-[>svg]:px-2',
-          active && 'text-foreground',
-          disabled && 'opacity-60',
-        )}
-      >
-        <span className="[&>svg]:size-3">{icon}</span>
-        <span className="hidden sm:inline">{prefix}:</span> {value}
-        <ChevronDown className="size-3 opacity-60" />
-      </Button>
-    </DropdownMenuTrigger>
+    <div
+      className={cn(
+        'inline-flex h-8 shrink-0 items-center rounded-full border text-xs font-medium transition-colors',
+        active
+          ? 'border-primary/40 bg-primary/10 text-foreground'
+          : 'border-border text-muted-foreground hover:border-foreground/25 hover:text-foreground',
+        disabled && 'opacity-60',
+      )}
+    >
+      <DropdownMenuTrigger asChild disabled={disabled}>
+        <button
+          type="button"
+          aria-label={`${label}: ${value}`}
+          className={cn(
+            'inline-flex h-full items-center gap-1.5 rounded-full pl-3 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed',
+            resettable ? 'pr-1' : 'pr-2.5',
+          )}
+        >
+          <span aria-hidden="true" className="[&>svg]:size-3.5">
+            {icon}
+          </span>
+          {value}
+          <ChevronDown aria-hidden="true" className="size-3 opacity-60" />
+        </button>
+      </DropdownMenuTrigger>
+      {resettable && (
+        <button
+          type="button"
+          onClick={onReset}
+          aria-label={`Reset ${label.toLowerCase()}`}
+          className="mr-1 flex size-6 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-primary/15 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          <X className="size-3" />
+        </button>
+      )}
+    </div>
   )
 }
 
 export function SortMenu({ value, onChange }: { value: SortOption; onChange: (sort: SortOption) => void }) {
   return (
     <DropdownMenu>
-      <FilterTrigger icon={<ArrowUpDown />} prefix="Sort" value={SORT_LABEL[value]} active={value !== 'relevance'} />
+      <FilterChip
+        icon={<ArrowUpDown />}
+        label="Sort"
+        value={SORT_LABEL[value]}
+        active={value !== 'relevance'}
+        onReset={() => onChange('relevance')}
+      />
       <DropdownMenuContent align="end" className="w-44">
         <DropdownMenuRadioGroup value={value} onValueChange={(v) => onChange(v as SortOption)}>
           {SORT_GROUPS.map((group, i) => (
@@ -123,10 +159,10 @@ export function IndexerMenu({
   const selected = new Set(value)
   const label =
     value.length === 0
-      ? 'All'
+      ? 'All indexers'
       : value.length === 1
         ? (indexers.find((i) => i.id === value[0])?.name ?? value[0]!)
-        : `${value.length} selected`
+        : `${value.length} indexers`
 
   const toggle = (id: string, checked: boolean) => {
     const next = new Set(selected)
@@ -139,12 +175,13 @@ export function IndexerMenu({
 
   return (
     <DropdownMenu>
-      <FilterTrigger
+      <FilterChip
         icon={<Server />}
-        prefix="Indexers"
-        value={loading ? '…' : disabled ? 'None' : label}
+        label="Indexers"
+        value={loading ? 'Indexers…' : disabled ? 'No indexers' : label}
         active={value.length > 0}
         disabled={disabled}
+        onReset={() => onChange([])}
       />
       <DropdownMenuContent align="end" className="max-h-80 w-56">
         <DropdownMenuItem
