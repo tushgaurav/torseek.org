@@ -23,6 +23,7 @@ import {
   type SortOption,
   type TitlePanel as TitlePanelData,
 } from '@/lib/api'
+import { useReportSearching } from '@/lib/search-activity'
 import { cn } from '@/lib/utils'
 
 const EMPTY: SearchResponse = {
@@ -144,6 +145,10 @@ export default function SearchResults() {
   const error = settled ? request.error : null
   const facets = data === EMPTY ? null : data.facets
   const showingResults = (!loading || stale) && !error && data.results.length > 0
+
+  // Drives the sweep along the nav's bottom border. Only the search itself
+  // counts; the title panel loads on its own and shouldn't hold the bar open.
+  useReportSearching(loading)
 
   // Shown on All and on the tab matching its kind (a movie panel on the TV tab would be wrong).
   const panelTab = titlePanel.panel?.kind === 'tv' ? TV : MOVIES

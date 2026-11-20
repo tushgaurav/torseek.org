@@ -145,6 +145,21 @@
   --shadow-2xl: var(--shadow-2xl);
 }
 
+@theme {
+  /* Nav-bar search indicator: a band a third of the bar wide, travelling from
+     fully off the left edge (-100% of itself) to fully off the right (300%). */
+  --animate-search-sweep: search-sweep 1.6s ease-in-out infinite;
+
+  @keyframes search-sweep {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(300%);
+    }
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

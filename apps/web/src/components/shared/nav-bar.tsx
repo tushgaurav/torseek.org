@@ -1,6 +1,7 @@
 import { Link, NavLink } from 'react-router'
 
 import { ModeToggle } from '@/components/shared/mode-toggle'
+import { SearchActivityBar } from '@/components/shared/search-activity-bar'
 import { Button } from '@/components/ui/button'
 import { navigationMenuTriggerStyle } from '@/components/ui/navigation-menu'
 import { siteContent } from '@/content/content'
@@ -39,6 +40,7 @@ export default function NavBar() {
           </Button>
         </div>
       </div>
+      <SearchActivityBar />
     </div>
   )
 }
