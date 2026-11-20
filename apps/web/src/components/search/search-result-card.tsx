@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Calendar, Download, HardDrive, Magnet, User } from 'lucide-react'
+import { ArrowDown, ArrowUp, Calendar, Download, ExternalLink, HardDrive, Magnet, User } from 'lucide-react'
 import { useMemo } from 'react'
 import { toast } from 'sonner'
 import { usePostHog } from '@posthog/react'
@@ -16,6 +16,7 @@ export default function SearchResultCard({
   pubDate,
   description,
   magnetLink,
+  comments,
   seeders,
   peers,
   attrs,
@@ -24,9 +25,13 @@ export default function SearchResultCard({
   const uploaded = new Date(pubDate)
   const { uploader, text } = useMemo(() => parseDescription(description, title), [description, title])
   const infohash = typeof attrs.infohash === 'string' ? attrs.infohash : null
-  // Indexers without magnets only offer .torrent files proxied through Jackett,
-  // which the API withholds because those URLs carry its key.
+  // Some indexers (e.g. 1337x) only expose the magnet on the torrent's own page,
+  // which Jackett fetches lazily through a proxy URL that carries its key, so the
+  // API withholds it. For those, the indexer's details page is the way in.
   const hasMagnet = magnetLink.startsWith('magnet:')
+  // `comments` is the indexer's details page; only ever render it as an http(s) link.
+  const detailsUrl = comments && /^https?:\/\//i.test(comments) ? comments : null
+  const sourceLabel = `Open on ${jackettindexer.name}`
 
   const track = (event: string, extra?: Record<string, unknown>) => {
     posthog.capture(event, {
@@ -53,6 +58,17 @@ export default function SearchResultCard({
               href={magnetLink}
               title={title}
               onClick={() => track('result_opened')}
+              className="line-clamp-2 text-base font-medium leading-snug transition-colors hover:text-primary"
+            >
+              {title}
+            </a>
+          ) : detailsUrl ? (
+            <a
+              href={detailsUrl}
+              title={title}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => track('source_opened', { has_magnet: false, from: 'title' })}
               className="line-clamp-2 text-base font-medium leading-snug transition-colors hover:text-primary"
             >
               {title}
@@ -104,7 +120,20 @@ export default function SearchResultCard({
               Magnet link
             </Button>
           )}
-          {!hasMagnet && !infohash && (
+          {!hasMagnet && detailsUrl && (
+            <Button asChild variant="outline" size="sm" className="active:scale-[0.97]">
+              <a
+                href={detailsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => track('source_opened', { has_magnet: false, from: 'button' })}
+              >
+                <ExternalLink />
+                {sourceLabel}
+              </a>
+            </Button>
+          )}
+          {!hasMagnet && !detailsUrl && !infohash && (
             <span className="text-xs text-muted-foreground">No magnet available</span>
           )}
           {infohash && (
@@ -119,6 +148,29 @@ export default function SearchResultCard({
                 Download
               </a>
             </Button>
+          )}
+          {hasMagnet && detailsUrl && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground hover:text-foreground active:scale-[0.97]"
+                >
+                  <a
+                    href={detailsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={sourceLabel}
+                    onClick={() => track('source_opened', { has_magnet: true, from: 'button' })}
+                  >
+                    <ExternalLink />
+                  </a>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{sourceLabel}</TooltipContent>
+            </Tooltip>
           )}
         </div>
       </div>
