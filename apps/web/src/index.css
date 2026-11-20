@@ -145,18 +145,27 @@
   --shadow-2xl: var(--shadow-2xl);
 }
 
-@theme {
-  /* Nav-bar search indicator: a band a third of the bar wide, travelling from
-     fully off the left edge (-100% of itself) to fully off the right (300%). */
-  --animate-search-sweep: search-sweep 1.6s ease-in-out infinite;
+/* Nav-bar search indicator (components/shared/search-activity-bar.tsx): a soft
+   band of light gliding from one end of the line to the other and back, easing
+   into each end. Its parent must be an inline-size container (sizes use cqw). */
+@utility search-scanner {
+  width: clamp(6rem, 18cqw, 16rem);
+  background-image: linear-gradient(90deg, transparent, var(--color-primary), transparent);
+  filter: drop-shadow(0 0 4px var(--color-primary));
+  animation: search-scan 1.5s cubic-bezier(0.65, 0, 0.35, 1) infinite alternate;
 
-  @keyframes search-sweep {
-    from {
-      transform: translateX(-100%);
-    }
-    to {
-      transform: translateX(300%);
-    }
+  @media (prefers-reduced-motion: reduce) {
+    width: 100%;
+    animation: var(--animate-pulse);
+  }
+}
+
+@keyframes search-scan {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(calc(100cqw - 100%));
   }
 }
 

@@ -8,12 +8,10 @@ const SHOW_DELAY_MS = 150
 /** Matches the opacity transition below, so the band keeps moving while it fades. */
 const FADE_MS = 400
 
-const band =
-  'absolute inset-y-0 left-0 w-1/3 animate-search-sweep bg-linear-to-r from-transparent via-primary to-transparent motion-reduce:w-full motion-reduce:animate-pulse'
-
 /**
- * A copper band sweeping along the nav's bottom border while a search is in
- * flight. Render inside a positioned element; it overlays a 2px bottom border.
+ * A soft band of light gliding back and forth along the nav's bottom border
+ * while a search is in flight (see `search-scanner` in index.css). Render
+ * inside a positioned element; it overlays a 2px bottom border.
  */
 export function SearchActivityBar() {
   const searching = useIsSearching()
@@ -34,18 +32,13 @@ export function SearchActivityBar() {
     <div
       aria-hidden="true"
       className={cn(
-        'pointer-events-none absolute inset-x-0 -bottom-0.5 h-0.5 overflow-hidden transition-opacity duration-400',
+        // A size container so the scanner can travel exactly the line's width (100cqw).
+        // No overflow clipping: the scanner stays inside, and its glow should spill.
+        'pointer-events-none absolute inset-x-0 -bottom-0.5 h-0.5 @container transition-opacity duration-400',
         visible ? 'opacity-100' : 'opacity-0',
       )}
     >
-      {mounted && (
-        <>
-          <div className={band} />
-          {/* Half a cycle behind (the sweep is 1.6s), so one band enters as the
-              other leaves and the line never sits empty between passes. */}
-          <div className={cn(band, '[animation-delay:-0.8s] motion-reduce:hidden')} />
-        </>
-      )}
+      {mounted && <div className="search-scanner absolute inset-y-0 left-0" />}
     </div>
   )
 }
