@@ -97,6 +97,33 @@ export type IndexersResponse = {
   categories: Category[]
 }
 
+/** Movie/show metadata for the side panel; see apps/api/src/lib/title-panel.ts. */
+export type TitlePanel = {
+  kind: 'movie' | 'tv'
+  tmdb_id: number
+  imdb_id: string | null
+  title: string
+  original_title: string | null
+  year: number | null
+  end_year: number | null
+  tagline: string | null
+  overview: string
+  genres: string[]
+  runtime: number | null
+  seasons: number | null
+  episodes: number | null
+  status: string | null
+  rating: number | null
+  vote_count: number
+  /** API-relative path of the proxied poster; pass through apiUrl(). */
+  poster: string | null
+  credits: { label: string; names: string[] }[]
+  links: { tmdb: string; imdb: string | null }
+  match: { votes: number; of: number }
+}
+
+export type TitlePanelResponse = { panel: TitlePanel | null; reason: string }
+
 export type ApiErrorCode =
   | 'BAD_REQUEST'
   | 'JACKETT_UNREACHABLE'
@@ -186,4 +213,16 @@ export function searchTorrents({ query, page = 1, sort, categories, indexers }: 
 
 export function getIndexers(): Promise<IndexersResponse> {
   return request<IndexersResponse>('/api/indexers')
+}
+
+/** Shares the server's cached result set with searchTorrents, so fire both at once. */
+export function getTitlePanel({ query, indexers }: Pick<SearchRequest, 'query' | 'indexers'>): Promise<TitlePanelResponse> {
+  const params = new URLSearchParams({ q: query })
+  if (indexers && indexers.length > 0) params.set('indexers', indexers.join(','))
+  return request<TitlePanelResponse>(`/api/meta?${params}`)
+}
+
+/** Absolute URL for an API-relative path such as a proxied poster. */
+export function apiUrl(path: string): string {
+  return `${API_BASE_URL}${path}`
 }

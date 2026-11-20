@@ -2,12 +2,12 @@ import { Router } from 'express'
 
 import { categoryFacets, filterByCategory, isTopLevelCategory } from '../lib/categories.ts'
 import { JackettError } from '../lib/jackett.ts'
+import { csv, parseBaseQuery, str } from '../lib/params.ts'
 import { capture, distinctIdFrom, posthog, sessionIdFrom } from '../lib/posthog.ts'
 import { runSearch, searchMode } from '../lib/search.ts'
 import { isSortOption, sortItems, type SortOption } from '../lib/sort.ts'
 
 const PAGE_SIZE = 15
-const MAX_QUERY_LENGTH = 200
 
 export const searchRouter: Router = Router()
 
@@ -15,21 +15,10 @@ type ParsedQuery =
   | { ok: true; q: string; page: number; sort: SortOption; categories: number[]; indexers: string[] }
   | { ok: false; error: string }
 
-function str(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : ''
-}
-
-function csv(value: unknown): string[] {
-  return str(value)
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-}
-
 function parseQuery(query: Record<string, unknown>): ParsedQuery {
-  const q = str(query.q)
-  if (!q) return { ok: false, error: 'Missing required query parameter "q"' }
-  if (q.length > MAX_QUERY_LENGTH) return { ok: false, error: `"q" must be at most ${MAX_QUERY_LENGTH} characters` }
+  const base = parseBaseQuery(query)
+  if (!base.ok) return base
+  const { q, indexers } = base
 
   const rawPage = str(query.page)
   const page = rawPage === '' ? 1 : Number(rawPage)
@@ -41,11 +30,6 @@ function parseQuery(query: Record<string, unknown>): ParsedQuery {
   const categories = csv(query.cat).map(Number)
   if (categories.some((c) => !isTopLevelCategory(c))) {
     return { ok: false, error: '"cat" must be a comma-separated list of top-level category ids (e.g. 2000,5000)' }
-  }
-
-  const indexers = csv(query.indexers)
-  if (indexers.some((id) => !/^[a-z0-9_-]+$/i.test(id))) {
-    return { ok: false, error: '"indexers" must be a comma-separated list of indexer ids' }
   }
 
   return { ok: true, q, page, sort, categories, indexers }

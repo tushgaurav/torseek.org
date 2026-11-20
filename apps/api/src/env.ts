@@ -48,7 +48,16 @@ export const env = {
   JACKETT_TIMEOUT_MS: integer('JACKETT_TIMEOUT_MS', 30_000),
   /** How long a full result set stays in the API's in-process cache for paging and re-sorting. */
   SEARCH_CACHE_TTL_MS: integer('SEARCH_CACHE_TTL_MS', 600_000),
+  /** TMDB v3 API key or v4 read access token. Empty disables the title panel. */
+  TMDB_API_KEY: optional('TMDB_API_KEY', '').trim(),
+  TMDB_API_URL: optional('TMDB_API_URL', 'https://api.themoviedb.org/3').replace(/\/+$/, ''),
+  TMDB_IMAGE_URL: optional('TMDB_IMAGE_URL', 'https://image.tmdb.org/t/p').replace(/\/+$/, ''),
+  /** Per-request timeout to TMDB. The panel is optional, so this stays short. */
+  TMDB_TIMEOUT_MS: integer('TMDB_TIMEOUT_MS', 3_000),
 } as const
 
 /** True when searches go to Jackett rather than the bundled fixture. */
 export const jackettEnabled = env.JACKETT_API_KEY.length > 0
+
+/** True when the title panel can look up movie/TV metadata. */
+export const tmdbEnabled = env.TMDB_API_KEY.length > 0

@@ -36,7 +36,7 @@ export function topLevelOf(id: number): number | null {
 }
 
 /** Distinct top-level categories an item belongs to (usually one). */
-function topLevelsOf(item: TorrentItem): Set<number> {
+export function topLevelsOf(item: TorrentItem): Set<number> {
   const tops = new Set<number>()
   for (const c of item.category) {
     const top = topLevelOf(Number(c))

@@ -4,6 +4,7 @@ import express from 'express'
 import { env } from './env.ts'
 import { healthRouter } from './routes/health.ts'
 import { indexersRouter } from './routes/indexers.ts'
+import { metaRouter } from './routes/meta.ts'
 import { searchRouter } from './routes/search.ts'
 import { statusRouter } from './routes/status.ts'
 
@@ -17,6 +18,7 @@ export function createApp() {
   app.use('/api/status', statusRouter)
   app.use('/api/indexers', indexersRouter)
   app.use('/api/search', searchRouter)
+  app.use('/api/meta', metaRouter)
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'Not found' })
