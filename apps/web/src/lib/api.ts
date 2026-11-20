@@ -119,7 +119,7 @@ export type TitlePanel = {
   poster: string | null
   credits: { label: string; names: string[] }[]
   links: { tmdb: string; imdb: string | null }
-  match: { votes: number; of: number }
+  match: { votes: number; of: number; discarded: number }
 }
 
 export type TitlePanelResponse = { panel: TitlePanel | null; reason: string }

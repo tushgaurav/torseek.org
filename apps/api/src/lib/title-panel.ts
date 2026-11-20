@@ -10,8 +10,11 @@ import type { TorrentItem } from './torznab.ts'
  */
 
 export type TitlePanel = Omit<TitleDetails, 'adult'> & {
-  /** How many id-tagged Movies/TV results backed this title, out of how many. */
-  match: { votes: number; of: number }
+  /**
+   * How many id-tagged Movies/TV results backed this title, out of how many
+   * usable tags; `discarded` tags were contradicted by their own release name.
+   */
+  match: { votes: number; of: number; discarded: number }
 }
 
 export type PanelReason =
@@ -50,7 +53,7 @@ export async function resolveTitlePanel(query: string, items: TorrentItem[]): Pr
   if (media.length / items.length < MIN_MEDIA_SHARE) return { panel: null, reason: 'not_media' }
 
   // One vote per result, by the most specific id it carries.
-  const tally = new Map<string, { ref: ExternalRef; votes: number }>()
+  const tally = new Map<string, { ref: ExternalRef; items: TorrentItem[] }>()
   let tagged = 0
   for (const item of media) {
     const ref = externalRefOf(item)
@@ -58,45 +61,96 @@ export async function resolveTitlePanel(query: string, items: TorrentItem[]): Pr
     tagged += 1
     const key = refKey(ref)
     const entry = tally.get(key)
-    if (entry) entry.votes += 1
-    else tally.set(key, { ref, votes: 1 })
+    if (entry) entry.items.push(item)
+    else tally.set(key, { ref, items: [item] })
   }
   if (tagged < MIN_VOTES) return { panel: null, reason: 'too_few_ids' }
 
   // Different trackers tag the same title with different id types (IMDb vs
   // TVDB), so resolve the leading candidates and merge votes per TMDB title.
-  const candidates = [...tally.values()].sort((a, b) => b.votes - a.votes).slice(0, MAX_CANDIDATES)
-  const settled = await Promise.allSettled(
-    candidates.map(async (c) => ({ tmdb: await toTmdbRef(c.ref), votes: c.votes })),
+  const candidates = [...tally.values()].sort((a, b) => b.items.length - a.items.length).slice(0, MAX_CANDIDATES)
+  const resolved = await settledValues(
+    candidates.map(async (c) => ({ tmdb: await toTmdbRef(c.ref), items: c.items })),
   )
-  // Skipping a candidate TMDB failed on only removes votes, so it can make the
-  // panel less likely but never pick a wrong title. Give up only if all failed.
-  const resolved = settled.flatMap((s) => (s.status === 'fulfilled' ? [s.value] : []))
-  const firstFailure = settled.find((s) => s.status === 'rejected')
-  if (resolved.length === 0 && firstFailure) throw firstFailure.reason
 
-  const merged = new Map<string, { ref: TmdbRef; votes: number }>()
-  for (const { tmdb, votes } of resolved) {
+  const merged = new Map<string, { ref: TmdbRef; items: TorrentItem[] }>()
+  for (const { tmdb, items: votes } of resolved) {
     if (!tmdb) continue
     const key = `${tmdb.kind}:${tmdb.id}`
     const entry = merged.get(key)
-    if (entry) entry.votes += votes
-    else merged.set(key, { ref: tmdb, votes })
+    if (entry) entry.items.push(...votes)
+    else merged.set(key, { ref: tmdb, items: [...votes] })
   }
+  if (merged.size === 0) return { panel: null, reason: 'not_found' }
 
-  const winner = [...merged.values()].sort((a, b) => b.votes - a.votes)[0]
+  // Uploader-entered ids are often wrong (e.g. US "How I Met Your Mother"
+  // S09 episodes tagged with the 2-season Russian remake). A vote whose own
+  // release name contradicts its title is dropped from the count entirely:
+  // it is evidence of a bad tag, not of any other title.
+  const scored = (
+    await settledValues(
+      [...merged.values()].map(async (c) => {
+        const details = await getTitleDetails(c.ref)
+        if (!details) return null
+        const votes = c.items.filter((item) => releaseFits(item.title, details)).length
+        return { details, votes, discarded: c.items.length - votes }
+      }),
+    )
+  ).filter((s) => s !== null)
+
+  const discarded = scored.reduce((sum, s) => sum + s.discarded, 0)
+  const usable = tagged - discarded
+  const winner = scored.sort((a, b) => b.votes - a.votes)[0]
   if (!winner) return { panel: null, reason: 'not_found' }
-  if (winner.votes < MIN_VOTES || winner.votes / tagged < MIN_AGREEMENT) {
+  if (winner.votes < MIN_VOTES || winner.votes / usable < MIN_AGREEMENT) {
     return { panel: null, reason: 'no_consensus' }
   }
 
-  const details = await getTitleDetails(winner.ref)
-  if (!details) return { panel: null, reason: 'not_found' }
-  const { adult, ...title } = details
+  const { adult, ...title } = winner.details
   if (adult) return { panel: null, reason: 'adult' }
   if (!queryMatchesTitle(query, title)) return { panel: null, reason: 'query_mismatch' }
 
-  return { panel: { ...title, match: { votes: winner.votes, of: tagged } }, reason: 'shown' }
+  return { panel: { ...title, match: { votes: winner.votes, of: usable, discarded } }, reason: 'shown' }
+}
+
+/**
+ * Fulfilled values only. Skipping a candidate TMDB failed on only removes
+ * votes, so it can make a panel less likely but never pick a wrong title.
+ * Gives up (rethrows) only when every lookup failed.
+ */
+async function settledValues<T>(promises: Promise<T>[]): Promise<T[]> {
+  const settled = await Promise.allSettled(promises)
+  const values = settled.flatMap((s) => (s.status === 'fulfilled' ? [s.value] : []))
+  const failure = settled.find((s) => s.status === 'rejected')
+  if (values.length === 0 && failure) throw failure.reason
+  return values
+}
+
+// --- release-name consistency ----------------------------------------------------
+
+/**
+ * False when a release name contradicts the title its id points at: a season
+ * the show doesn't have, or a movie year more than one off. No evidence
+ * either way (no season/year in the name) counts as consistent.
+ */
+function releaseFits(release: string, title: TitleDetails): boolean {
+  const name = release.toLowerCase()
+  if (title.kind === 'tv') {
+    const seasons = title.seasons
+    // +1: TMDB's season count can lag a season that has just started airing.
+    return seasons === null || seasonsIn(name).every((s) => s <= seasons + 1)
+  }
+  const year = title.year
+  if (year === null) return true
+  const years = [...name.matchAll(/\b(19\d{2}|20\d{2})\b/g)].map((m) => Number(m[1]))
+  // A title can contain a year of its own ("Blade Runner 2049"), so any fit will do.
+  return years.length === 0 || years.some((y) => Math.abs(y - year) <= 1)
+}
+
+/** Season numbers mentioned in a release name: S03, S03E04, S01-S05, Season 2, 3x04. */
+function seasonsIn(name: string): number[] {
+  const patterns = [/\bs(\d{1,2})(?:e\d{1,3})?\b/g, /\bseasons?[\s._-]*(\d{1,2})\b/g, /\b(\d{1,2})x\d{2,3}\b/g]
+  return patterns.flatMap((re) => [...name.matchAll(re)].map((m) => Number(m[1])))
 }
 
 // --- ids ---------------------------------------------------------------------

@@ -54,6 +54,7 @@ metaRouter.get('/', async (req, res) => {
       tmdb_id: result.panel?.tmdb_id ?? null,
       votes: result.panel?.match.votes ?? null,
       of: result.panel?.match.of ?? null,
+      discarded: result.panel?.match.discarded ?? null,
       took_ms: Math.round(performance.now() - started),
     },
     sessionIdFrom(req.headers),

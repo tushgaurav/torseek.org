@@ -90,15 +90,12 @@ export function TitlePanel({ panel, variant, onDismiss, className }: TitlePanelP
       )}
 
       <div className="mt-3 flex items-center justify-between gap-3 text-xs">
-        <div className="flex gap-4">
+        <div>
           {panel.links.imdb && (
             <ExternalLinkItem href={panel.links.imdb} onClick={() => track('title_panel_link_clicked', { destination: 'imdb' })}>
               IMDb
             </ExternalLinkItem>
           )}
-          <ExternalLinkItem href={panel.links.tmdb} onClick={() => track('title_panel_link_clicked', { destination: 'tmdb' })}>
-            TMDB
-          </ExternalLinkItem>
         </div>
         <button
           type="button"
@@ -111,10 +108,6 @@ export function TitlePanel({ panel, variant, onDismiss, className }: TitlePanelP
           Not this title?
         </button>
       </div>
-
-      <p className="mt-3 border-t border-border/60 pt-2.5 text-[11px] leading-snug text-muted-foreground/80">
-        This product uses the TMDB API but is not endorsed or certified by TMDB.
-      </p>
     </section>
   )
 }

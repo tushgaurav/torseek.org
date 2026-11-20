@@ -56,6 +56,8 @@ export const IMAGE_SIZES = new Set(['w92', 'w185', POSTER_SIZE, 'w500'])
 export const IMAGE_FILE = /^[A-Za-z0-9_-]{1,64}\.(?:jpg|jpeg|png|webp)$/
 
 const MIN_VOTES_FOR_RATING = 10
+/** Connection-level failures only; HTTP errors and timeouts are not retried. */
+const MAX_ATTEMPTS = 3
 const DAY_MS = 24 * 60 * 60_000
 
 // Metadata barely changes, so both caches hold entries for a day. A `null`
@@ -74,11 +76,19 @@ async function tmdbGet<T>(path: string, params: Record<string, string> = {}): Pr
   else url.searchParams.set('api_key', env.TMDB_API_KEY)
 
   let res: Response
-  try {
-    res = await fetch(url, { headers, signal: AbortSignal.timeout(env.TMDB_TIMEOUT_MS) })
-  } catch (err) {
-    // `path` only: the URL itself may carry the api_key.
-    throw new TmdbError(`TMDB request to ${path} failed`, { cause: err })
+  for (let attempt = 1; ; attempt++) {
+    try {
+      res = await fetch(url, { headers, signal: AbortSignal.timeout(env.TMDB_TIMEOUT_MS) })
+      break
+    } catch (err) {
+      // Connection resets (flaky links, some ISPs filtering TMDB's hostname)
+      // fail fast and often succeed on retry; a timeout has already spent its budget.
+      const timedOut = err instanceof Error && err.name === 'TimeoutError'
+      if (timedOut || attempt >= MAX_ATTEMPTS) {
+        // `path` only: the URL itself may carry the api_key.
+        throw new TmdbError(`TMDB request to ${path} failed after ${attempt} attempt(s)`, { cause: err })
+      }
+    }
   }
   if (res.status === 404) return null
   if (!res.ok) throw new TmdbError(`TMDB responded with HTTP ${res.status} for ${path}`)
